@@ -1,0 +1,1 @@
+CREATE INDEX `idx_web_access_audit_occurred_at` ON `web_access_audit` (`occurred_at`);

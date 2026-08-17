@@ -1,0 +1,128 @@
+import { audit, type D1DatabaseLike } from "./user-store";
+
+export const RELAY_TEST_DURATION_SECONDS = 10;
+const COMMAND_TTL_MILLISECONDS = 45_000;
+const initialized = new WeakSet<object>();
+
+export async function ensureRelayTestStore(db: D1DatabaseLike) {
+  const marker = db as unknown as object;
+  if (initialized.has(marker)) return;
+  await db.batch([
+    db.prepare(`CREATE TABLE IF NOT EXISTS relay_test_commands (
+      id TEXT PRIMARY KEY,
+      actor_user_id TEXT NOT NULL,
+      status TEXT NOT NULL CHECK(status IN ('pending','running','completed','failed','expired')),
+      duration_seconds INTEGER NOT NULL CHECK(duration_seconds=10),
+      requested_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      started_at TEXT,
+      completed_at TEXT,
+      expires_at TEXT NOT NULL,
+      error TEXT
+    )`),
+    db.prepare("CREATE INDEX IF NOT EXISTS idx_relay_test_status ON relay_test_commands(status,requested_at)"),
+    db.prepare("CREATE UNIQUE INDEX IF NOT EXISTS idx_relay_test_one_active ON relay_test_commands((1)) WHERE status IN ('pending','running')"),
+  ]);
+  initialized.add(marker);
+}
+
+async function expireRelayTests(db: D1DatabaseLike) {
+  await ensureRelayTestStore(db);
+  await db.batch([
+    db.prepare(`UPDATE relay_test_commands SET status='expired',completed_at=CURRENT_TIMESTAMP,error='La Raspberry no tomó el comando dentro de la ventana segura.'
+      WHERE status='pending' AND datetime(expires_at)<=datetime('now')`),
+    db.prepare(`UPDATE relay_test_commands SET status='failed',completed_at=CURRENT_TIMESTAMP,error='No se recibió el cierre confirmado de la prueba.'
+      WHERE status='running' AND datetime(expires_at)<=datetime('now')`),
+  ]);
+}
+
+export async function requestRelayTest(db: D1DatabaseLike, actorId: string) {
+  await expireRelayTests(db);
+  const active = await db.prepare("SELECT id FROM relay_test_commands WHERE status IN ('pending','running') LIMIT 1")
+    .first<{ id: string }>();
+  if (active) throw new RelayTestConflict("Ya hay una prueba de relé en curso.");
+  const id = `relay-test-${crypto.randomUUID()}`;
+  const expiresAt = new Date(Date.now() + COMMAND_TTL_MILLISECONDS).toISOString();
+  try {
+    await db.prepare(`INSERT INTO relay_test_commands(id,actor_user_id,status,duration_seconds,expires_at)
+      VALUES (?,?,'pending',?,?)`).bind(id, actorId, RELAY_TEST_DURATION_SECONDS, expiresAt).run();
+  } catch (error) {
+    if (error instanceof Error && /unique|constraint/iu.test(error.message)) {
+      throw new RelayTestConflict("Ya hay una prueba de relé en curso.");
+    }
+    throw error;
+  }
+  await audit(db, "relay_test_requested", actorId, null, {
+    commandId: id,
+    durationSeconds: RELAY_TEST_DURATION_SECONDS,
+  });
+  return getRelayTest(db, id);
+}
+
+export async function takeRelayTestCommand(db: D1DatabaseLike) {
+  await expireRelayTests(db);
+  const command = await db.prepare(`SELECT id,duration_seconds AS durationSeconds,expires_at AS expiresAt
+    FROM relay_test_commands WHERE status='pending' AND datetime(expires_at)>datetime('now')
+    ORDER BY requested_at LIMIT 1`).first<Record<string, unknown>>();
+  if (!command) return null;
+  await db.prepare(`UPDATE relay_test_commands SET status='running',started_at=CURRENT_TIMESTAMP
+    WHERE id=? AND status='pending'`).bind(command.id).run();
+  return {
+    id: String(command.id),
+    status: "running",
+    durationSeconds: Number(command.durationSeconds),
+    expiresAt: String(command.expiresAt),
+  };
+}
+
+export async function completeRelayTest(
+  db: D1DatabaseLike,
+  commandId: string,
+  result: { success: boolean; error?: string },
+) {
+  await expireRelayTests(db);
+  const command = await db.prepare(`SELECT id,actor_user_id AS actorUserId,status
+    FROM relay_test_commands WHERE id=?`).bind(commandId)
+    .first<{ id: string; actorUserId: string; status: string }>();
+  if (command?.status === "completed" && result.success) return getRelayTest(db, commandId);
+  if (command?.status === "failed" && !result.success) return getRelayTest(db, commandId);
+  if (!command || command.status !== "running") {
+    throw new RelayTestConflict("La prueba de relé ya no está activa.");
+  }
+  const status = result.success ? "completed" : "failed";
+  const error = result.success ? null : (result.error?.trim() || "La Raspberry interrumpió la prueba.").slice(0, 200);
+  await db.prepare(`UPDATE relay_test_commands SET status=?,error=?,completed_at=CURRENT_TIMESTAMP WHERE id=?`)
+    .bind(status, error, commandId).run();
+  await audit(db, result.success ? "relay_test_completed" : "relay_test_failed", command.actorUserId, null, {
+    commandId,
+    durationSeconds: RELAY_TEST_DURATION_SECONDS,
+    error,
+  });
+  return getRelayTest(db, commandId);
+}
+
+export async function getRelayTest(db: D1DatabaseLike, commandId: string) {
+  await expireRelayTests(db);
+  const row = await db.prepare(`SELECT id,status,duration_seconds AS durationSeconds,requested_at AS requestedAt,
+      started_at AS startedAt,completed_at AS completedAt,expires_at AS expiresAt,error
+    FROM relay_test_commands WHERE id=?`).bind(commandId).first<Record<string, unknown>>();
+  if (!row) return null;
+  return {
+    ...row,
+    durationSeconds: Number(row.durationSeconds),
+    requestedAt: utcTimestamp(row.requestedAt),
+    startedAt: utcTimestamp(row.startedAt),
+    completedAt: utcTimestamp(row.completedAt),
+    expiresAt: utcTimestamp(row.expiresAt),
+  };
+}
+
+export class RelayTestConflict extends Error {}
+
+function utcTimestamp(value: unknown): string | null {
+  if (typeof value !== "string" || !value.trim()) return null;
+  const source = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/u.test(value)
+    ? `${value.replace(" ", "T")}Z`
+    : value;
+  const timestamp = new Date(source);
+  return Number.isNaN(timestamp.getTime()) ? null : timestamp.toISOString();
+}
