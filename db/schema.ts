@@ -31,6 +31,11 @@ export const webAccessAudit = sqliteTable("web_access_audit", {
   index("idx_web_access_audit_occurred_at").on(table.occurredAt),
 ]);
 
+export const webAccessMeta = sqliteTable("web_access_meta", {
+  key: text("key").primaryKey(),
+  value: text("value").notNull(),
+});
+
 export const managedOperators = sqliteTable("managed_operators", {
   id: text("id").primaryKey(),
   name: text("name").notNull(),
@@ -208,6 +213,7 @@ export const fuelHistoryMeta = sqliteTable("fuel_history_meta", {
 export const fuelMovements = sqliteTable("fuel_movements", {
   id: text("id").primaryKey(),
   movementType: text("movement_type").notNull(),
+  classification: text("classification").notNull().default("standard"),
   occurredAt: text("occurred_at").notNull(),
   liters: real("liters").notNull(),
   openingLevelLiters: real("opening_level_liters").notNull(),
@@ -218,14 +224,94 @@ export const fuelMovements = sqliteTable("fuel_movements", {
   operatorId: text("operator_id"),
   equipmentId: text("equipment_id"),
   isMaster: integer("is_master", { mode: "boolean" }).notNull().default(false),
+  authorizationEvidence: text("authorization_evidence").notNull().default("legacy"),
+  adoptionStage: text("adoption_stage"),
+  assistedMode: integer("assisted_mode", { mode: "boolean" }).notNull().default(false),
+  equipmentIssue: text("equipment_issue"),
   detectedAutomatically: integer("detected_automatically", { mode: "boolean" }).notNull().default(false),
   confidence: real("confidence").notNull().default(1),
   detectionStatus: text("detection_status").notNull().default("confirmed"),
+  reviewStatus: text("review_status").notNull().default("not_required"),
+  originalLiters: real("original_liters"),
+  documentReference: text("document_reference"),
+  reviewedByUserId: text("reviewed_by_user_id"),
+  reviewedByName: text("reviewed_by_name"),
+  reviewedAt: text("reviewed_at"),
+  reviewNote: text("review_note"),
   createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
 }, (table) => [
   index("idx_fuel_movements_occurred").on(table.occurredAt),
   index("idx_fuel_movements_type_occurred").on(table.movementType, table.occurredAt),
+  index("idx_fuel_movements_receipt_review").on(table.movementType, table.reviewStatus, table.occurredAt),
 ]);
+
+export const fuelReceiptReviews = sqliteTable("fuel_receipt_reviews", {
+  id: text("id").primaryKey(),
+  movementId: text("movement_id").notNull(),
+  action: text("action").notNull(),
+  previousLiters: real("previous_liters"),
+  resultingLiters: real("resulting_liters"),
+  documentReference: text("document_reference"),
+  note: text("note").notNull().default(""),
+  actorUserId: text("actor_user_id"),
+  actorName: text("actor_name"),
+  occurredAt: text("occurred_at").notNull(),
+}, (table) => [
+  index("idx_fuel_receipt_reviews_movement").on(table.movementId, table.occurredAt),
+]);
+
+export const pumpTestTransactions = sqliteTable("pump_test_transactions", {
+  id: text("id").primaryKey(),
+  actorUserId: text("actor_user_id").notNull(),
+  transactionType: text("transaction_type").notNull().default("pump_test"),
+  status: text("status").notNull().default("pending"),
+  durationSeconds: integer("duration_seconds").notNull(),
+  requestedAt: text("requested_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+  startedAt: text("started_at"),
+  completedAt: text("completed_at"),
+  expiresAt: text("expires_at").notNull(),
+  error: text("error"),
+}, (table) => [index("idx_pump_test_status").on(table.status, table.requestedAt)]);
+
+export const manualModeSchedules = sqliteTable("manual_mode_schedules", {
+  id: text("id").primaryKey(),
+  actorUserId: text("actor_user_id").notNull(),
+  actorRole: text("actor_role").notNull(),
+  siteId: text("site_id").notNull(),
+  purpose: text("purpose").notNull().default("manual"),
+  status: text("status").notNull().default("scheduled"),
+  startAt: text("start_at").notNull(),
+  endAt: text("end_at").notNull(),
+  requestedAt: text("requested_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+  startedAt: text("started_at"),
+  completedAt: text("completed_at"),
+  cancelledAt: text("cancelled_at"),
+  error: text("error"),
+}, (table) => [index("idx_manual_mode_status_start").on(table.status, table.startAt)]);
+
+export const technologyAdoptionSettings = sqliteTable("technology_adoption_settings", {
+  siteId: text("site_id").primaryKey(),
+  stage: text("stage").notNull().default("full"),
+  programStatus: text("program_status").notNull().default("inactive"),
+  revision: integer("revision").notNull().default(1),
+  programStartedAt: text("program_started_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+  completedAt: text("completed_at"),
+  stageStartedAt: text("stage_started_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+  reviewAt: text("review_at"),
+  updatedBy: text("updated_by"),
+  updatedAt: text("updated_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+  note: text("note").notNull().default("Política segura inicial: trazabilidad completa."),
+});
+
+export const technologyAdoptionTransitions = sqliteTable("technology_adoption_transitions", {
+  id: text("id").primaryKey(),
+  siteId: text("site_id").notNull(),
+  fromStage: text("from_stage").notNull(),
+  toStage: text("to_stage").notNull(),
+  reason: text("reason").notNull(),
+  actorUserId: text("actor_user_id").notNull(),
+  occurredAt: text("occurred_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+}, (table) => [index("idx_adoption_transitions_site_time").on(table.siteId, table.occurredAt)]);
 
 export const fuelLevelReadings = sqliteTable("fuel_level_readings", {
   id: integer("id").primaryKey({ autoIncrement: true }),
@@ -243,6 +329,8 @@ export const fuelDetectionState = sqliteTable("fuel_detection_state", {
   peakLevelLiters: real("peak_level_liters").notNull(),
   activeReceiptId: text("active_receipt_id"),
   activeStartedAt: text("active_started_at"),
+  baselineStartedAt: text("baseline_started_at").notNull().default("1970-01-01T00:00:00.000Z"),
+  telemetrySessionId: text("telemetry_session_id"),
   lastReadingAt: text("last_reading_at").notNull(),
 });
 
@@ -251,6 +339,12 @@ export const systemAlerts = sqliteTable("system_alerts", {
   severity: text("severity").notNull(),
   priority: text("priority").notNull().default("medium"),
   status: text("status").notNull().default("pending"),
+  parentAlertId: text("parent_alert_id"),
+  rootAlertId: text("root_alert_id"),
+  reopenSequence: integer("reopen_sequence").notNull().default(0),
+  reopenedByUserId: text("reopened_by_user_id"),
+  reopenedByName: text("reopened_by_name"),
+  reopenReason: text("reopen_reason"),
   title: text("title").notNull(),
   detail: text("detail").notNull(),
   occurredAt: text("occurred_at").notNull(),
@@ -273,6 +367,7 @@ export const systemAlertComments = sqliteTable("system_alert_comments", {
   actorUserId: text("actor_user_id").notNull(),
   actorName: text("actor_name").notNull(),
   comment: text("comment").notNull(),
+  eventType: text("event_type").notNull().default("follow_up"),
   statusAfter: text("status_after").notNull(),
   priorityAfter: text("priority_after").notNull(),
   occurredAt: text("occurred_at").notNull().default(sql`CURRENT_TIMESTAMP`),
@@ -289,5 +384,8 @@ export const edgeRuntimeStatus = sqliteTable("edge_runtime_status", {
   k24Enabled: integer("k24_enabled", { mode: "boolean" }).notNull().default(false),
   k24Healthy: integer("k24_healthy", { mode: "boolean" }).notNull(),
   tankLevelEnabled: integer("tank_level_enabled", { mode: "boolean" }).notNull().default(false),
+  telemetrySessionId: text("telemetry_session_id"),
+  technologyAdoptionStage: text("technology_adoption_stage").notNull().default("full"),
+  adoptionPolicyRevision: integer("adoption_policy_revision").notNull().default(1),
   occurredAt: text("occurred_at").notNull(),
 });

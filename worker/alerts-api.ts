@@ -1,6 +1,6 @@
 import { authenticatedUser, json, sameOrigin, type AuthEnvironment } from "./auth";
 import { edgeSensorSecret, sensorKeyMatches } from "./fuel-history-api";
-import { ensureAlertsStore, ingestEdgeAlert, isAlertPriority, isAlertStatus, listAlerts, recordAlertUpdate } from "./alerts-store";
+import { ensureAlertsStore, ingestEdgeAlert, isAlertPriority, isAlertStatus, listAlerts, recordAlertUpdate, reopenAlert } from "./alerts-store";
 import { readJsonBody, RequestBodyError } from "./request-body";
 import { parsePermissions } from "./user-store";
 
@@ -24,6 +24,22 @@ export async function handleAlertsRequest(request: Request, env: AuthEnvironment
     if (!parsePermissions(actor.permissions).includes("view_dashboard")) return json({ error: "No tienes permiso para consultar alertas." }, 403);
     const canManage = parsePermissions(actor.permissions).includes("manage_alerts");
     return json({ alerts: await listAlerts(env.DB, canManage) }, 200);
+  }
+  const reopenMatch = url.pathname.match(/^\/api\/alerts\/([^/]+)\/reopen$/u);
+  if (request.method === "POST" && reopenMatch) {
+    if (!sameOrigin(request)) return json({ error: "Solicitud no permitida." }, 403);
+    if (!parsePermissions(actor.permissions).includes("manage_alerts")) return json({ error: "No tienes permiso para reabrir alertas." }, 403);
+    let body: { reason?: unknown; priority?: unknown };
+    try { body = await readJsonBody(request, 4096); } catch (error) { return bodyError(error); }
+    const reason = typeof body.reason === "string" ? body.reason.trim() : "";
+    if (reason.length < 10 || reason.length > 500) return json({ error: "Describe el motivo de reapertura (10 a 500 caracteres)." }, 400);
+    if (!isAlertPriority(body.priority)) return json({ error: "Selecciona la nueva criticidad de la alerta." }, 400);
+    try {
+      const reopened = await reopenAlert(env.DB, decodeURIComponent(reopenMatch[1]), actor.id, actor.name, reason, body.priority);
+      return json({ reopened: true, ...reopened }, 201);
+    } catch (error) {
+      return json({ error: error instanceof Error ? error.message : "No fue posible reabrir la alerta." }, 409);
+    }
   }
   const match = url.pathname.match(/^\/api\/alerts\/([^/]+)\/action$/u);
   if (request.method === "POST" && match) {

@@ -67,21 +67,69 @@ test("renders the Concha y Toro edge application", async () => {
 });
 
 test("supports prioritized alert follow-up with auditable comments", async () => {
-  const [source, api, store] = await Promise.all([
+  const [source, styles, api, store, migration] = await Promise.all([
     readFile(new URL("../app/page.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/globals.css", import.meta.url), "utf8"),
     readFile(new URL("../worker/alerts-api.ts", import.meta.url), "utf8"),
     readFile(new URL("../worker/alerts-store.ts", import.meta.url), "utf8"),
+    readFile(new URL("../drizzle/0021_alert_reopening.sql", import.meta.url), "utf8"),
   ]);
   assert.match(source, /Tomando acción/i);
   assert.match(source, /name="comment" required minLength=\{10\}/i);
   assert.match(source, /Urgente.*Alta.*Media.*Baja/is);
   assert.match(source, /Historial de comentarios/i);
   assert.match(source, /Ordenar alertas/i);
+  assert.match(source, /Reabrir como nueva alerta/i);
+  assert.match(source, /Reabierta · ciclo/i);
+  assert.match(source, /Filtrar alertas por origen/i);
+  assert.match(source, /function AuthVersion\(\).*SITE_VERSION/s);
+  assert.match(styles, /alert-reopened-badge/i);
+  assert.doesNotMatch(styles, /auth-card::after|V\.1\.\d+/i);
   assert.doesNotMatch(source, /localStorage\.setItem\("krontec\.alerts"/i);
   assert.match(api, /manage_alerts/i);
+  assert.match(api, /\/reopen/i);
   assert.match(api, /listAlerts\(env\.DB, canManage\)/i);
   assert.match(store, /system_alert_comments/i);
   assert.match(store, /recordAlertUpdate/i);
+  assert.match(store, /reopenAlert/i);
+  assert.match(migration, /parent_alert_id/i);
+  assert.match(migration, /idx_system_alerts_single_reopen/i);
+});
+
+test("keeps update notes and large alert counts compact in the header", async () => {
+  const [source, styles] = await Promise.all([
+    readFile(new URL("../app/page.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/globals.css", import.meta.url), "utf8"),
+  ]);
+  assert.match(source, />Novedades</i);
+  assert.match(source, /Modo manual programado/i);
+  assert.match(source, /count > 99 \? "99\+"/i);
+  assert.match(styles, /\.notification-button b[^}]*padding:\s*0 4px/is);
+  assert.match(styles, /\.notification-button b[^}]*border-radius:\s*999px/is);
+  assert.match(styles, /\.whats-new-panel\s*\{/i);
+});
+
+test("charts expose liters, independent scales, and the tank-level trend", async () => {
+  const [source, styles] = await Promise.all([
+    readFile(new URL("../app/page.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/globals.css", import.meta.url), "utf8"),
+  ]);
+  assert.match(source, /overview-chart-axis/i);
+  assert.match(source, /data-tooltip=\{`\$\{formatLiters\(value\)\} despachados`\}/i);
+  assert.match(source, /fuel-chart-axis-right[^>]*data-axis-label="NIVEL"/i);
+  assert.match(source, /inventory-level-line/i);
+  assert.match(source, /Nivel: \$\{formatLiters\(point\.closingLevel\)\}/i);
+  assert.match(styles, /\.chart-tooltip-target:hover::after/i);
+  assert.match(styles, /\.inventory-level-line polyline[^}]*stroke:/is);
+});
+
+test("shows a healthy active manual mode as an operational green state", async () => {
+  const source = await readFile(new URL("../app/page.tsx", import.meta.url), "utf8");
+  assert.match(source, /manualModeActive\s*=\s*Boolean\([^;]*state === "manual_mode"[^;]*relayEnergized\)/s);
+  assert.match(source, /operational\s*=\s*automaticReady \|\| manualModeActive/i);
+  assert.match(source, /manualModeActive\s*\?\s*"Modo manual activo"/s);
+  assert.match(source, /ready-ring \$\{operational \? "" : "offline"\}/i);
+  assert.match(source, /R0\.1 permanece habilitado durante la ventana manual/i);
 });
 
 test("keeps an alert open through multiple updates before resolving it", async () => {
@@ -151,6 +199,7 @@ test("keeps an alert open through multiple updates before resolving it", async (
     assert.equal(progressingAlert.priority, "urgent");
     assert.equal(progressingAlert.acknowledged, false);
     assert.equal(progressingAlert.comments.length, 1);
+    assert.match(progressingAlert.comments[0].recordedAt, /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/);
 
     const resolved = await worker.fetch(new Request(`http://localhost/api/alerts/${alertId}/action`, {
       method: "POST", headers: browserHeaders,
@@ -171,6 +220,68 @@ test("keeps an alert open through multiple updates before resolving it", async (
     assert.equal(repeated.status, 409);
     const stored = await database.prepare("SELECT COUNT(*) AS total FROM system_alert_comments WHERE alert_id=?").bind(alertId).first();
     assert.equal(stored.total, 2);
+
+    const lateEdgeUpdate = await worker.fetch(new Request("http://localhost/api/alerts/edge", {
+      method: "POST",
+      headers: { "content-type": "application/json", "x-edge-sensor-key": env.FUEL_SENSOR_INGEST_KEY },
+      body: JSON.stringify({ id: alertId, severity: "warning", priority: "low", title: "Presión fuera de rango", detail: "Actualización tardía que no debe alterar un cierre histórico.", occurredAt: initialAlert.time }),
+    }), env, executionContext);
+    assert.equal(lateEdgeUpdate.status, 201);
+    assert.deepEqual(await lateEdgeUpdate.json(), { created: false, updated: false, ignored: true, reason: "resolved" });
+    const immutableClosedAlert = (await (await worker.fetch(new Request("http://localhost/api/alerts", { headers: { cookie } }), env, executionContext)).json()).alerts.find((item) => item.id === alertId);
+    assert.equal(immutableClosedAlert.priority, "urgent");
+    assert.equal(immutableClosedAlert.detail, "Revisar la línea de combustible");
+
+    const reopened = await worker.fetch(new Request(`http://localhost/api/alerts/${alertId}/reopen`, {
+      method: "POST", headers: browserHeaders,
+      body: JSON.stringify({ reason: "La presión volvió a salir de rango durante una nueva operación.", priority: "high" }),
+    }), env, executionContext);
+    assert.equal(reopened.status, 201);
+    const reopenedBody = await reopened.json();
+    assert.equal(reopenedBody.reopened, true);
+    assert.equal(reopenedBody.parentAlertId, alertId);
+    assert.equal(reopenedBody.rootAlertId, alertId);
+    assert.equal(reopenedBody.reopenNumber, 1);
+    assert.match(reopenedBody.alertId, /^alr-/);
+
+    const afterReopening = await worker.fetch(new Request("http://localhost/api/alerts", { headers: { cookie } }), env, executionContext);
+    const alertsAfterReopening = (await afterReopening.json()).alerts;
+    const originalAfterReopening = alertsAfterReopening.find((item) => item.id === alertId);
+    const reopenedAlert = alertsAfterReopening.find((item) => item.id === reopenedBody.alertId);
+    assert.equal(originalAfterReopening.status, "resolved");
+    assert.equal(originalAfterReopening.reopenedAsAlertId, reopenedBody.alertId);
+    assert.equal(reopenedAlert.status, "pending");
+    assert.equal(reopenedAlert.priority, "high");
+    assert.equal(reopenedAlert.severity, "warning");
+    assert.equal(reopenedAlert.parentAlertId, alertId);
+    assert.equal(reopenedAlert.rootAlertId, alertId);
+    assert.equal(reopenedAlert.reopenNumber, 1);
+    assert.equal(reopenedAlert.acknowledged, false);
+    assert.equal(reopenedAlert.reopenedBy, "Pedro Coloma");
+    assert.equal(reopenedAlert.reopenReason, "La presión volvió a salir de rango durante una nueva operación.");
+    assert.equal(reopenedAlert.comments.length, 1);
+    assert.equal(reopenedAlert.comments[0].eventType, "reopened");
+    assert.equal(reopenedAlert.comments[0].statusAfter, "pending");
+
+    const duplicateReopening = await worker.fetch(new Request(`http://localhost/api/alerts/${alertId}/reopen`, {
+      method: "POST", headers: browserHeaders,
+      body: JSON.stringify({ reason: "Intento duplicado que debe quedar expresamente bloqueado.", priority: "urgent" }),
+    }), env, executionContext);
+    assert.equal(duplicateReopening.status, 409);
+
+    const takingAction = await worker.fetch(new Request(`http://localhost/api/alerts/${reopenedBody.alertId}/action`, {
+      method: "POST", headers: browserHeaders,
+      body: JSON.stringify({ description: "Se inició una inspección independiente para este nuevo ciclo.", status: "in_progress", priority: "urgent" }),
+    }), env, executionContext);
+    assert.equal(takingAction.status, 200);
+    const afterTakingAction = await worker.fetch(new Request("http://localhost/api/alerts", { headers: { cookie } }), env, executionContext);
+    const activeReopenedAlert = (await afterTakingAction.json()).alerts.find((item) => item.id === reopenedBody.alertId);
+    assert.equal(activeReopenedAlert.status, "in_progress");
+    assert.equal(activeReopenedAlert.priority, "urgent");
+    assert.equal(activeReopenedAlert.reopenNumber, 1);
+    assert.equal(activeReopenedAlert.comments.length, 2);
+    assert.deepEqual(activeReopenedAlert.comments.map((item) => item.eventType), ["reopened", "follow_up"]);
+    assert.ok(new Date(activeReopenedAlert.comments[0].recordedAt) <= new Date(activeReopenedAlert.comments[1].recordedAt));
   } finally {
     delete globalThis.__FUEL_EDGE_LOCAL_DB__;
     database.close();
@@ -208,7 +319,7 @@ test("provides a persistent fuel history with automatic receipt detection", asyn
     readFile(new URL("../worker/fuel-history-store.ts", import.meta.url), "utf8"),
     readFile(new URL("../drizzle/0004_old_thundra.sql", import.meta.url), "utf8"),
   ]);
-  assert.match(page, /Histórico combustible/i);
+  assert.match(page, /Histórico de combustible/i);
   assert.match(page, /Total despachado/i);
   assert.match(page, /Agrupar por/i);
   assert.match(page, /Semana.*Mes.*Año.*Personalizado/is);
@@ -219,11 +330,160 @@ test("provides a persistent fuel history with automatic receipt detection", asyn
   assert.doesNotMatch(page, /OCIO monitoreando cambios/i);
   assert.match(api, /view_transactions/i);
   assert.match(api, /x-edge-sensor-key/i);
-  assert.match(store, /RECEIPT_THRESHOLD_LITERS = 40/i);
+  assert.match(store, /RECEIPT_THRESHOLD_LITERS = 100/i);
+  assert.match(store, /HIGH_CONFIDENCE_RECEIPT_LITERS = 120/i);
   assert.match(store, /riseFromBaseline >= RECEIPT_THRESHOLD_LITERS/i);
-  assert.match(store, /detection_status='confirmed'/i);
+  assert.match(store, /STABLE_PLATEAU_TOLERANCE_PERCENT = 2/i);
+  assert.match(store, /CONFIRMATION_MINUTES = 10/i);
+  assert.match(store, /Aumento breve seguido de nivel sostenido/i);
+  assert.match(page, /function clientRequestId/i);
+  assert.match(page, /typeof webCrypto\.randomUUID === "function"/i);
+  assert.match(page, /typeof webCrypto\.getRandomValues === "function"/i);
+  assert.doesNotMatch(page, /useRef\(crypto\.randomUUID\(\)\)/i);
   assert.match(migration, /CREATE TABLE `fuel_movements`/i);
   assert.match(migration, /idx_fuel_movements_type_occurred/i);
+});
+
+test("requires human approval, preserves sensor evidence and supports manual receipts", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "fuel-receipt-approval-"));
+  const database = createLocalD1(join(directory, "web.sqlite3"));
+  globalThis.__FUEL_EDGE_LOCAL_DB__ = database;
+  try {
+    const worker = await loadWorker();
+    const password = "correct horse battery staple";
+    const env = {
+      ...authEnv("master@example.test", password),
+      AUTH_BOOTSTRAP_VERSION: "test-receipt-approval-1",
+      FUEL_SENSOR_INGEST_KEY: randomBytes(32).toString("base64url"),
+    };
+    const login = await worker.fetch(new Request("http://localhost/api/auth/login", {
+      method: "POST",
+      headers: { "content-type": "application/json", origin: "http://localhost" },
+      body: JSON.stringify({ email: "master@example.test", password }),
+    }), env, executionContext);
+    assert.equal(login.status, 200);
+    const cookie = (login.headers.get("set-cookie") ?? "").split(";", 1)[0];
+    const now = new Date();
+    const localDay = dateInputInTimeZone(now);
+    const initialize = await worker.fetch(new Request(`http://localhost/api/fuel-history?from=${localDay}&to=${localDay}`, {
+      headers: { cookie },
+    }), env, executionContext);
+    assert.equal(initialize.status, 200);
+
+    const firstAt = new Date(now.getTime() - 30 * 60_000).toISOString();
+    const secondAt = new Date(now.getTime() - 20 * 60_000).toISOString();
+    const thirdAt = new Date(now.getTime() - 15 * 60_000).toISOString();
+    await database.batch([
+      database.prepare(`INSERT INTO fuel_movements(
+        id,movement_type,occurred_at,liters,opening_level_liters,closing_level_liters,source,reference_id,detail,
+        detected_automatically,confidence,detection_status,review_status,original_liters
+      ) VALUES ('auto-pending-correct','receipt',?,1000,800,1800,'OCIO','AUTO-CORRECT','Meseta sostenida',1,.98,'confirmed','pending',1000)`).bind(firstAt),
+      database.prepare(`INSERT INTO fuel_movements(
+        id,movement_type,occurred_at,liters,opening_level_liters,closing_level_liters,source,reference_id,detail,
+        detected_automatically,confidence,detection_status,review_status,original_liters
+      ) VALUES ('auto-pending-reject','receipt',?,75,1800,1875,'OCIO','AUTO-REJECT','Meseta sostenida',1,.94,'confirmed','pending',75)`).bind(secondAt),
+      database.prepare(`INSERT INTO fuel_movements(
+        id,movement_type,occurred_at,liters,opening_level_liters,closing_level_liters,source,reference_id,detail,
+        detected_automatically,confidence,detection_status,review_status,original_liters
+      ) VALUES ('auto-pending-approve','receipt',?,120,1875,1995,'OCIO','AUTO-APPROVE','Meseta sostenida',1,.97,'confirmed','pending',120)`).bind(thirdAt),
+    ]);
+
+    const beforeReview = await worker.fetch(new Request(`http://localhost/api/fuel-history?from=${localDay}&to=${localDay}`, {
+      headers: { cookie },
+    }), env, executionContext);
+    const beforeBody = await beforeReview.json();
+    assert.equal(beforeBody.summary.receivedLiters, 0);
+    assert.equal(beforeBody.summary.pendingReceiptCount, 3);
+
+    const corrected = await worker.fetch(new Request("http://localhost/api/fuel-history/receipts/auto-pending-correct/review", {
+      method: "POST",
+      headers: { cookie, origin: "http://localhost", "content-type": "application/json" },
+      body: JSON.stringify({
+        requestId: "review-correct-0001", action: "correct", liters: 1005.8,
+        documentReference: "GD-1005-8", note: "Guía del camión acredita 1005,8 litros",
+      }),
+    }), env, executionContext);
+    assert.equal(corrected.status, 200);
+    const correctedMovement = (await corrected.json()).movement;
+    assert.equal(correctedMovement.reviewStatus, "corrected");
+    assert.equal(correctedMovement.originalLiters, 1000);
+    assert.equal(correctedMovement.liters, 1005.8);
+
+    const rejected = await worker.fetch(new Request("http://localhost/api/fuel-history/receipts/auto-pending-reject/review", {
+      method: "POST",
+      headers: { cookie, origin: "http://localhost", "content-type": "application/json" },
+      body: JSON.stringify({ requestId: "review-reject-0001", action: "reject", note: "Oscilación verificada sin descarga de camión" }),
+    }), env, executionContext);
+    assert.equal(rejected.status, 200);
+    assert.equal((await rejected.json()).movement.reviewStatus, "rejected");
+
+    const approved = await worker.fetch(new Request("http://localhost/api/fuel-history/receipts/auto-pending-approve/review", {
+      method: "POST",
+      headers: { cookie, origin: "http://localhost", "content-type": "application/json" },
+      body: JSON.stringify({ requestId: "review-approve-0001", action: "approve", documentReference: "GD-APPROVED-120" }),
+    }), env, executionContext);
+    assert.equal(approved.status, 200);
+    assert.equal((await approved.json()).movement.reviewStatus, "approved");
+
+    const adjustedAfterApproval = await worker.fetch(new Request("http://localhost/api/fuel-history/receipts/auto-pending-approve/review", {
+      method: "POST",
+      headers: { cookie, origin: "http://localhost", "content-type": "application/json" },
+      body: JSON.stringify({
+        requestId: "review-adjust-0002", action: "correct", liters: 121.2,
+        documentReference: "GD-APPROVED-120", note: "Ajuste posterior según pesaje final documentado",
+      }),
+    }), env, executionContext);
+    assert.equal(adjustedAfterApproval.status, 200);
+    const adjustedBody = await adjustedAfterApproval.json();
+    assert.equal(adjustedBody.movement.reviewStatus, "corrected");
+    assert.equal(adjustedBody.movement.liters, 121.2);
+
+    const manual = await worker.fetch(new Request("http://localhost/api/fuel-history/receipts/manual", {
+      method: "POST",
+      headers: { cookie, origin: "http://localhost", "content-type": "application/json" },
+      body: JSON.stringify({
+        requestId: "manual-receipt-0001", occurredAt: new Date(now.getTime() - 10 * 60_000).toISOString(),
+        liters: 450.25, documentReference: "GD-MANUAL-450", source: "Camión proveedor",
+        note: "Recepción autorizada registrada desde la guía",
+      }),
+    }), env, executionContext);
+    assert.equal(manual.status, 201);
+    assert.equal((await manual.json()).movement.reviewStatus, "approved");
+
+    const duplicateDocument = await worker.fetch(new Request("http://localhost/api/fuel-history/receipts/manual", {
+      method: "POST",
+      headers: { cookie, origin: "http://localhost", "content-type": "application/json" },
+      body: JSON.stringify({
+        requestId: "manual-receipt-0002", occurredAt: new Date(now.getTime() - 5 * 60_000).toISOString(),
+        liters: 450.25, documentReference: "GD-MANUAL-450", source: "Camión proveedor",
+        note: "Intento duplicado de la misma guía de despacho",
+      }),
+    }), env, executionContext);
+    assert.equal(duplicateDocument.status, 400);
+    assert.match((await duplicateDocument.json()).error, /referencia documental ya está asociada/i);
+
+    const afterReview = await worker.fetch(new Request(`http://localhost/api/fuel-history?from=${localDay}&to=${localDay}`, {
+      headers: { cookie },
+    }), env, executionContext);
+    const afterBody = await afterReview.json();
+    assert.equal(afterBody.summary.receivedLiters, 1577.3);
+    assert.equal(afterBody.summary.pendingReceiptCount, 0);
+    assert.equal((await database.prepare("SELECT COUNT(*) AS total FROM fuel_receipt_reviews").first()).total, 5);
+    const correctionAudit = await database.prepare(`SELECT action,previous_liters AS previousLiters,
+      resulting_liters AS resultingLiters,actor_name AS actorName FROM fuel_receipt_reviews
+      WHERE movement_id='auto-pending-correct'`).first();
+    assert.deepEqual(correctionAudit, { action: "corrected", previousLiters: 1000, resultingLiters: 1005.8, actorName: "Pedro Coloma" });
+
+    const unauthenticated = await worker.fetch(new Request("http://localhost/api/fuel-history/receipts/manual", {
+      method: "POST", headers: { origin: "http://localhost", "content-type": "application/json" },
+      body: JSON.stringify({ requestId: "manual-no-auth-01" }),
+    }), env, executionContext);
+    assert.equal(unauthenticated.status, 403);
+  } finally {
+    delete globalThis.__FUEL_EDGE_LOCAL_DB__;
+    database.close();
+    await rm(directory, { recursive: true, force: true });
+  }
 });
 
 test("resets load and level data only after administrator password confirmation", async () => {
@@ -325,7 +585,7 @@ test("resets load and level data only after administrator password confirmation"
     const newBaseline = await worker.fetch(new Request("http://localhost/api/fuel-history/readings", {
       method: "POST",
       headers: sensorHeaders,
-      body: JSON.stringify({ levelLiters: 980, occurredAt: new Date().toISOString(), source: "OCIO" }),
+      body: JSON.stringify({ levelLiters: 980, occurredAt: new Date(new Date(reset.resetAt).getTime() + 1000).toISOString(), source: "OCIO" }),
     }), env, executionContext);
     assert.equal(newBaseline.status, 201);
     assert.equal((await newBaseline.json()).detection.status, "initialized");
@@ -560,7 +820,7 @@ test("queries complete Chilean calendar days before and after the UTC date chang
       readFile(new URL("../app/page.tsx", import.meta.url), "utf8"),
     ]);
     assert.match(api, /America\/Santiago/u);
-    assert.match(page, /function FuelHistoryView\(\)[\s\S]*window\.setInterval\(refresh, 5000\)/u);
+    assert.match(page, /function FuelHistoryView\([^)]*\)[\s\S]*window\.setInterval\(refresh, 5000\)/u);
   } finally {
     delete globalThis.__FUEL_EDGE_LOCAL_DB__;
     database.close();
@@ -816,7 +1076,7 @@ test("persists the complete sighting, claim and enrollment command flow", async 
     assert.equal(transferredSighting.status, 201);
     const transferClaim = await worker.fetch(new Request("http://localhost/api/equipment-enrollment/xiao-test-001/claim", {
       method: "POST", headers: { cookie, origin: "http://localhost", "content-type": "application/json" },
-      body: JSON.stringify({ name: "Cuatrimoto trasladada", kind: "Cuatrimoto", validUntil: transferUntil }),
+      body: JSON.stringify({ name: "Camioneta trasladada", kind: "Camioneta", validUntil: transferUntil }),
     }), env, executionContext);
     assert.equal(transferClaim.status, 202);
     const transferNext = await worker.fetch(new Request("http://localhost/api/equipment-enrollment/commands/next", {
@@ -831,8 +1091,8 @@ test("persists the complete sighting, claim and enrollment command flow", async 
     assert.equal(transferResult.status, 200);
     const transferredManaged = await worker.fetch(new Request("http://localhost/api/managed-entities", { headers: { cookie } }), env, executionContext);
     const transferred = (await transferredManaged.json()).equipment.find((item) => item.module === "xiao-test-001");
-    assert.equal(transferred.name, "Cuatrimoto trasladada");
-    assert.equal(transferred.kind, "Cuatrimoto");
+    assert.equal(transferred.name, "Camioneta trasladada");
+    assert.equal(transferred.kind, "Camioneta");
     assert.equal(transferred.siteId, "campo-dos");
     assert.equal(transferred.expiry, transferUntil);
   } finally {
@@ -1576,6 +1836,20 @@ test("nests the machine map under manageable equipment", async () => {
   assert.match(page, /machineMap: \{ eyebrow: "Activos · Equipos abastecibles"/i);
 });
 
+test("prioritizes fuel history and shows adoption only as the final active operation tab", async () => {
+  const page = await readFile(new URL("../app/page.tsx", import.meta.url), "utf8");
+  const navigation = page.match(/const navItems:[\s\S]*?const viewCopy/)?.[0] ?? "";
+  const historyIndex = navigation.indexOf('id: "fuelHistory"');
+  const loadsIndex = navigation.indexOf('id: "transactions"');
+  const alertsIndex = navigation.indexOf('id: "alerts"');
+  const adoptionIndex = navigation.indexOf('id: "adoption"');
+  assert.ok(historyIndex >= 0 && historyIndex < loadsIndex);
+  assert.ok(loadsIndex < alertsIndex && alertsIndex < adoptionIndex);
+  assert.match(page, /item\.id !== "adoption" \|\| adoptionActive/i);
+  assert.match(page, /Iniciar etapa de adopción tecnológica/i);
+  assert.doesNotMatch(page, /Para el operador|Para el encargado agrícola|Para gerencia/i);
+});
+
 test("allows only the master account to permanently delete a system user", async () => {
   const directory = await mkdtemp(join(tmpdir(), "fuel-user-deletion-"));
   const database = createLocalD1(join(directory, "web.sqlite3"));
@@ -1717,7 +1991,7 @@ test("reports the live validator connectivity through the lightweight operationa
   }
 });
 
-test("runs a fixed authenticated relay test command and records its completion", async () => {
+test("runs an administrator-confirmed pump test for the requested time and records its transaction", async () => {
   const directory = await mkdtemp(join(tmpdir(), "fuel-relay-test-"));
   const database = createLocalD1(join(directory, "web.sqlite3"));
   globalThis.__FUEL_EDGE_LOCAL_DB__ = database;
@@ -1726,6 +2000,7 @@ test("runs a fixed authenticated relay test command and records its completion",
     const env = {
       ...authEnv("master@example.test", "correct horse battery staple"),
       AUTH_BOOTSTRAP_VERSION: "test-relay-command-1",
+      AUTH_DATA_KEY: randomBytes(32).toString("base64url"),
       FUEL_SENSOR_INGEST_KEY: randomBytes(32).toString("base64url"),
     };
     const login = await worker.fetch(new Request("http://localhost/api/auth/login", {
@@ -1737,13 +2012,20 @@ test("runs a fixed authenticated relay test command and records its completion",
     const edgeHeaders = { "content-type": "application/json", "x-edge-sensor-key": env.FUEL_SENSOR_INGEST_KEY };
     await worker.fetch(new Request("http://localhost/api/fuel-history/status", {
       method: "POST", headers: edgeHeaders,
-      body: JSON.stringify({ moduleId: "rpi-01", siteId: "fundo-01", state: "locked", relayEnergized: false, validatorOnline: true, nfcReady: true, k24Enabled: true, k24Healthy: true, tankLevelEnabled: true, occurredAt: new Date().toISOString() }),
+      body: JSON.stringify({ moduleId: "rpi-01", siteId: "fundo-01", state: "locked", relayEnergized: false, validatorOnline: false, nfcReady: false, k24Enabled: true, k24Healthy: true, tankLevelEnabled: true, occurredAt: new Date().toISOString() }),
     }), env, executionContext);
+
+    const wrongPassword = await worker.fetch(new Request("http://localhost/api/relay-test", {
+      method: "POST",
+      headers: { cookie, origin: "http://localhost", "content-type": "application/json" },
+      body: JSON.stringify({ password: "incorrect password", durationSeconds: 25 }),
+    }), env, executionContext);
+    assert.equal(wrongPassword.status, 401);
 
     const requested = await worker.fetch(new Request("http://localhost/api/relay-test", {
       method: "POST",
       headers: { cookie, origin: "http://localhost", "content-type": "application/json" },
-      body: "{}",
+      body: JSON.stringify({ password: "correct horse battery staple", durationSeconds: 25 }),
     }), env, executionContext);
     assert.equal(requested.status, 202);
     const commandId = (await requested.json()).command.id;
@@ -1757,7 +2039,8 @@ test("runs a fixed authenticated relay test command and records its completion",
     }), env, executionContext);
     const takenCommand = (await taken.json()).command;
     assert.equal(takenCommand.id, commandId);
-    assert.equal(takenCommand.durationSeconds, 10);
+    assert.equal(takenCommand.durationSeconds, 25);
+    assert.equal(takenCommand.transactionType, "pump_test");
     assert.equal(takenCommand.status, "running");
     const runningVisible = await worker.fetch(new Request(`http://localhost/api/relay-test/${commandId}`, {
       headers: { cookie },
@@ -1768,7 +2051,7 @@ test("runs a fixed authenticated relay test command and records its completion",
     const duplicate = await worker.fetch(new Request("http://localhost/api/relay-test", {
       method: "POST",
       headers: { cookie, origin: "http://localhost", "content-type": "application/json" },
-      body: "{}",
+      body: JSON.stringify({ password: "correct horse battery staple", durationSeconds: 30 }),
     }), env, executionContext);
     assert.equal(duplicate.status, 409);
 
@@ -1781,7 +2064,41 @@ test("runs a fixed authenticated relay test command and records its completion",
       headers: { cookie },
     }), env, executionContext);
     assert.equal(visible.status, 200);
-    assert.equal((await visible.json()).command.durationSeconds, 10);
+    const visibleCommand = (await visible.json()).command;
+    assert.equal(visibleCommand.durationSeconds, 25);
+    assert.equal(visibleCommand.transactionType, "pump_test");
+    const transaction = await database.prepare(`SELECT actor_user_id AS actorId,transaction_type AS transactionType,
+      duration_seconds AS durationSeconds,status FROM pump_test_transactions WHERE id=?`).bind(commandId).first();
+    assert.equal(transaction.actorId, "usr-master");
+    assert.equal(transaction.transactionType, "pump_test");
+    assert.equal(transaction.durationSeconds, 25);
+    assert.equal(transaction.status, "completed");
+    const audit = await database.prepare("SELECT event,metadata FROM web_access_audit WHERE event='pump_test_transaction_completed' ORDER BY id DESC LIMIT 1").first();
+    assert.equal(audit.event, "pump_test_transaction_completed");
+    assert.equal(JSON.parse(audit.metadata).durationSeconds, 25);
+
+    const supervisorCreated = await worker.fetch(new Request("http://localhost/api/users", {
+      method: "POST",
+      headers: { cookie, origin: "http://localhost", "content-type": "application/json" },
+      body: JSON.stringify({ name: "Supervisor sin prueba", email: "supervisor@example.test", role: "supervisor", permissions: ["view_dashboard"] }),
+    }), env, executionContext);
+    assert.equal(supervisorCreated.status, 201);
+    const supervisor = await supervisorCreated.json();
+    await database.prepare("UPDATE web_users SET permissions=? WHERE id=?")
+      .bind(JSON.stringify(["view_dashboard", "manage_system"]), supervisor.user.id).run();
+    const supervisorLogin = await worker.fetch(new Request("http://localhost/api/auth/login", {
+      method: "POST",
+      headers: { "content-type": "application/json", origin: "http://localhost" },
+      body: JSON.stringify({ email: "supervisor@example.test", password: supervisor.temporaryPassword }),
+    }), env, executionContext);
+    assert.equal(supervisorLogin.status, 200);
+    const supervisorCookie = (supervisorLogin.headers.get("set-cookie") ?? "").split(";", 1)[0];
+    const supervisorRejected = await worker.fetch(new Request("http://localhost/api/relay-test", {
+      method: "POST",
+      headers: { cookie: supervisorCookie, origin: "http://localhost", "content-type": "application/json" },
+      body: JSON.stringify({ password: supervisor.temporaryPassword, durationSeconds: 10 }),
+    }), env, executionContext);
+    assert.equal(supervisorRejected.status, 403);
   } finally {
     delete globalThis.__FUEL_EDGE_LOCAL_DB__;
     database.close();
@@ -1789,20 +2106,25 @@ test("runs a fixed authenticated relay test command and records its completion",
   }
 });
 
-test("shows the protected ten-second R0.1 test in Sistema", async () => {
+test("shows the administrator-only pump test with enable time in Sistema", async () => {
   const [page, api, store] = await Promise.all([
     readFile(new URL("../app/page.tsx", import.meta.url), "utf8"),
     readFile(new URL("../worker/relay-test-api.ts", import.meta.url), "utf8"),
     readFile(new URL("../worker/relay-test-store.ts", import.meta.url), "utf8"),
   ]);
-  assert.match(page, /Probar relé por 10 s/i);
-  assert.match(page, /window\.confirm/i);
+  assert.match(page, /Probar bomba/i);
+  assert.match(page, /Tiempo de habilitación \(segundos\)/i);
+  assert.match(page, /Clave de administrador/i);
+  assert.match(page, /transactionType: "pump_test"/i);
   assert.match(page, /edge\?\.state === "locked"/i);
   assert.match(page, /Math\.min\(command\.durationSeconds/i);
   assert.match(api, /manage_system/i);
+  assert.match(api, /confirmAdministratorPassword/i);
+  assert.match(api, /role === "master" \|\| role === "administrator"/i);
   assert.match(api, /x-edge-sensor-key/i);
   assert.match(api, /k24Enabled.*k24Healthy/is);
-  assert.match(store, /CHECK\(duration_seconds=10\)/i);
+  assert.match(store, /pump_test_transactions/i);
+  assert.match(store, /CHECK\(duration_seconds BETWEEN 5 AND 60\)/i);
   assert.match(store, /UNIQUE INDEX.*one_active/is);
 });
 
@@ -1813,10 +2135,13 @@ test("offers temporary fundo assignment, controlled equipment types and KronTec 
     readFile(new URL("../worker/equipment-enrollment-store.ts", import.meta.url), "utf8"),
   ]);
   assert.match(page, /Vence en este fundo/i);
-  assert.match(page, /<option>Tractor<\/option><option>Trilladora<\/option><option>Cuatrimoto<\/option>/i);
+  assert.match(page, /<option>Tractor<\/option><option>Trilladora<\/option><option>Camión<\/option><option>Camioneta<\/option><option>Otro<\/option>/i);
+  assert.match(page, /label: "Data"/i);
+  assert.match(page, /title: "Data"/i);
+  assert.doesNotMatch(page, /label: "DATA"|title: "DATA"/);
   assert.match(page, /Revalidar módulo/i);
   assert.match(page, /© 2026 by KronTec/i);
-  assert.match(page, /V\.1\.5\.2/i);
+  assert.match(page, /V\.1\.9\.2/i);
   assert.match(page, /Control y trazabilidad de petróleo en línea/i);
   assert.match(page, /Conectividad del validador · en vivo/i);
   assert.match(page, /window\.setInterval\(refresh, 5000\)/i);
@@ -1864,7 +2189,7 @@ test("authenticates the master account with a private expiring cookie", async ()
       name: "Pedro Coloma",
       role: "Usuario maestro",
       roleCode: "master",
-      permissions: ["view_dashboard", "view_transactions", "manage_alerts", "manage_operators", "manage_equipment", "manage_associations", "manage_users", "manage_system"],
+      permissions: ["view_dashboard", "view_transactions", "manage_receipts", "manage_alerts", "manage_operators", "manage_equipment", "manage_associations", "manage_users", "manage_system"],
       mustChangePassword: false,
     },
   });

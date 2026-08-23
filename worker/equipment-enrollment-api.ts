@@ -20,7 +20,7 @@ import { parsePermissions } from "./user-store";
 import { ensureManagedEntityStore } from "./managed-entities-store";
 
 type EnrollmentEnvironment = AuthEnvironment & { FUEL_SENSOR_INGEST_KEY?: string };
-const equipmentKinds = ["Tractor", "Trilladora", "Cuatrimoto"] as const;
+const equipmentKinds = ["Tractor", "Trilladora", "Camión", "Camioneta", "Otro"] as const;
 
 export async function handleEquipmentEnrollmentRequest(request: Request, env: EnrollmentEnvironment): Promise<Response | null> {
   const url = new URL(request.url);
@@ -162,7 +162,7 @@ export async function handleEquipmentEnrollmentRequest(request: Request, env: En
     const kind = label(body.kind, 20);
     const validUntil = futureInstant(body.validUntil);
     if (name.length < 3) return json({ error: "Escribe un nombre de al menos 3 caracteres." }, 400);
-    if (!equipmentKinds.includes(kind as typeof equipmentKinds[number])) return json({ error: "Selecciona Tractor, Trilladora o Cuatrimoto." }, 400);
+    if (!equipmentKinds.includes(kind as typeof equipmentKinds[number])) return json({ error: "Selecciona Tractor, Trilladora, Camión, Camioneta u Otro." }, 400);
     if (!validUntil) return json({ error: "Selecciona un vencimiento futuro de hasta un año." }, 400);
     try {
       const result = await requestEquipmentEnrollment(env.DB, decodeURIComponent(claimMatch[1]), {

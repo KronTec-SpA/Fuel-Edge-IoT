@@ -11,6 +11,9 @@ import { handleNfcIdentificationRequest } from "./nfc-identification-api";
 import { handleRfidCredentialsRequest } from "./rfid-credentials-api";
 import { handleSystemSettingsRequest } from "./system-settings-api";
 import { handleRelayTestRequest } from "./relay-test-api";
+import { handleManualModeRequest } from "./manual-mode-api";
+import { handleDataExportRequest } from "./data-export-api";
+import { handleTechnologyAdoptionRequest } from "./technology-adoption-api";
 import type { D1DatabaseLike } from "./user-store";
 
 interface Env extends AuthEnvironment {
@@ -60,6 +63,12 @@ const worker = {
     if (systemSettingsResponse) return systemSettingsResponse;
     const relayTestResponse = await handleRelayTestRequest(request, runtimeEnv);
     if (relayTestResponse) return relayTestResponse;
+    const manualModeResponse = await handleManualModeRequest(request, runtimeEnv);
+    if (manualModeResponse) return manualModeResponse;
+    const technologyAdoptionResponse = await handleTechnologyAdoptionRequest(request, runtimeEnv);
+    if (technologyAdoptionResponse) return technologyAdoptionResponse;
+    const dataExportResponse = await handleDataExportRequest(request, runtimeEnv);
+    if (dataExportResponse) return dataExportResponse;
     const fuelHistoryResponse = await handleFuelHistoryRequest(request, runtimeEnv);
     if (fuelHistoryResponse) return fuelHistoryResponse;
     const alertsResponse = await handleAlertsRequest(request, runtimeEnv);

@@ -485,7 +485,7 @@ function pruneAttempts() {
 }
 
 function masterUser() {
-  return { name: "Pedro Coloma", role: "Usuario maestro", roleCode: "master", permissions: ["view_dashboard", "view_transactions", "manage_alerts", "manage_operators", "manage_equipment", "manage_associations", "manage_users", "manage_system"], mustChangePassword: false };
+  return { name: "Pedro Coloma", role: "Usuario maestro", roleCode: "master", permissions: ["view_dashboard", "view_transactions", "manage_receipts", "manage_alerts", "manage_operators", "manage_equipment", "manage_associations", "manage_users", "manage_system"], mustChangePassword: false };
 }
 
 function clientUser(user: StoredUser) {

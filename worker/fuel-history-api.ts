@@ -1,5 +1,5 @@
 import { authenticatedUser, confirmAdministratorPassword, json, sameOrigin, type AuthEnvironment } from "./auth";
-import { edgeRuntimeStatus, ensureFuelHistoryStore, fuelSensorState, ingestEdgeFuelMovement, ingestEdgeRuntimeStatus, ingestFuelLevelReading, listFuelMovements, resetFuelHistoryStore } from "./fuel-history-store";
+import { createManualFuelReceipt, edgeRuntimeStatus, ensureFuelHistoryStore, fuelSensorState, ingestEdgeFuelMovement, ingestEdgeRuntimeStatus, ingestFuelLevelReading, listFuelMovements, listPendingReceiptReviews, resetFuelHistoryStore, reviewFuelReceipt } from "./fuel-history-store";
 import { ensureManagedEntityStore } from "./managed-entities-store";
 import { parsePermissions } from "./user-store";
 import { readJsonBody, RequestBodyError } from "./request-body";
@@ -48,16 +48,62 @@ export async function handleFuelHistoryRequest(request: Request, env: FuelHistor
     }
     const range = parseRange(url.searchParams.get("from"), url.searchParams.get("to"));
     if (!range) return json({ error: "El rango de fechas no es válido." }, 400);
-    const movements = await listFuelMovements(env.DB, range.fromIso, range.toExclusiveIso);
-    const sensor = await fuelSensorState(env.DB);
-    const edge = await edgeRuntimeStatus(env.DB);
-    const receivedLiters = sum(movements.filter((item) => item.type === "receipt").map((item) => item.liters));
-    const dispatchedLiters = sum(movements.filter((item) => item.type === "dispatch").map((item) => item.liters));
+    const [movements, pendingReceipts, sensor, edge] = await Promise.all([
+      listFuelMovements(env.DB, range.fromIso, range.toExclusiveIso),
+      listPendingReceiptReviews(env.DB),
+      fuelSensorState(env.DB),
+      edgeRuntimeStatus(env.DB),
+    ]);
+    const reconciledReceipts = movements.filter((item) => item.type === "receipt"
+      && item.reviewStatus !== "pending" && item.reviewStatus !== "rejected");
+    const receivedLiters = sum(reconciledReceipts.map((item) => item.liters));
+    const dispatchedLiters = sum(movements.filter((item) => item.type === "dispatch" && item.classification === "standard").map((item) => item.liters));
+    const pumpEnablementLiters = sum(movements.filter((item) => item.classification === "pump_enablement").map((item) => item.liters));
     return json({
       movements,
-      summary: { receivedLiters, dispatchedLiters, netLiters: round1(receivedLiters - dispatchedLiters), movementCount: movements.length },
+      pendingReceipts,
+      summary: {
+        receivedLiters, dispatchedLiters, pumpEnablementLiters,
+        netLiters: round1(receivedLiters - dispatchedLiters - pumpEnablementLiters),
+        movementCount: movements.filter((item) => item.reviewStatus !== "pending" && item.reviewStatus !== "rejected").length,
+        pendingReceiptCount: pendingReceipts.length,
+      },
       sensor, edge,
     }, 200);
+  }
+
+  if (request.method === "POST" && url.pathname === "/api/fuel-history/receipts/manual") {
+    if (!sameOrigin(request)) return json({ error: "Solicitud no permitida." }, 403);
+    const actor = await authenticatedUser(request, env);
+    if (!actor || !parsePermissions(actor.permissions).includes("manage_receipts")) {
+      return json({ error: "No tienes permiso para registrar recepciones." }, 403);
+    }
+    let body: Record<string, unknown>;
+    try { body = await readJsonBody(request, 16 * 1024); } catch (error) { return bodyError(error); }
+    try {
+      const result = await createManualFuelReceipt(env.DB, body, { id: actor.id, name: actor.name });
+      return json(result, result.created ? 201 : 200);
+    } catch (error) {
+      return json({ error: error instanceof Error ? error.message : "No fue posible registrar la recepción." }, 400);
+    }
+  }
+
+  const receiptReviewMatch = /^\/api\/fuel-history\/receipts\/([^/]+)\/review$/u.exec(url.pathname);
+  if (request.method === "POST" && receiptReviewMatch) {
+    if (!sameOrigin(request)) return json({ error: "Solicitud no permitida." }, 403);
+    const actor = await authenticatedUser(request, env);
+    if (!actor || !parsePermissions(actor.permissions).includes("manage_receipts")) {
+      return json({ error: "No tienes permiso para revisar recepciones." }, 403);
+    }
+    let body: Record<string, unknown>;
+    try { body = await readJsonBody(request, 16 * 1024); } catch (error) { return bodyError(error); }
+    try {
+      const movementId = decodeURIComponent(receiptReviewMatch[1]);
+      const result = await reviewFuelReceipt(env.DB, movementId, body, { id: actor.id, name: actor.name });
+      return json(result, 200);
+    } catch (error) {
+      return json({ error: error instanceof Error ? error.message : "No fue posible revisar la recepción." }, 400);
+    }
   }
 
   if (request.method === "POST" && url.pathname === "/api/fuel-history/reset") {
@@ -82,15 +128,19 @@ export async function handleFuelHistoryRequest(request: Request, env: FuelHistor
     const actor = sensorAuthorized ? null : await authenticatedUser(request, env);
     const userAuthorized = actor ? parsePermissions(actor.permissions).includes("manage_system") && sameOrigin(request) : false;
     if (!sensorAuthorized && !userAuthorized) return json({ error: "Lectura de sensor no autorizada." }, 403);
-    let body: { levelLiters?: unknown; occurredAt?: unknown; source?: unknown };
+    let body: { levelLiters?: unknown; occurredAt?: unknown; source?: unknown; telemetrySessionId?: unknown };
     try { body = await readJsonBody(request, 4096); } catch (error) { return bodyError(error); }
     try {
       if (typeof body.levelLiters !== "number") throw new Error("El nivel debe ser un número.");
+      if (body.telemetrySessionId != null && typeof body.telemetrySessionId !== "string") {
+        throw new Error("La sesión de telemetría no es válida.");
+      }
       const result = await ingestFuelLevelReading(
         env.DB,
         body.levelLiters,
         typeof body.occurredAt === "string" ? body.occurredAt : new Date().toISOString(),
         typeof body.source === "string" ? body.source : "OCIO",
+        body.telemetrySessionId ?? null,
       );
       return json({ recorded: true, detection: result }, 201);
     } catch (error) {

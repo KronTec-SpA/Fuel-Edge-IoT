@@ -324,7 +324,7 @@ export async function completeEquipmentRegistryRemoval(
 
 export async function requestEquipmentEnrollment(db: D1DatabaseLike, moduleId: string, details: {
   name: string;
-  kind: "Tractor" | "Trilladora" | "Cuatrimoto";
+  kind: "Tractor" | "Trilladora" | "Camión" | "Camioneta" | "Otro";
   validUntil: string;
 }, actorId: string) {
   await ensureEquipmentEnrollmentStore(db);

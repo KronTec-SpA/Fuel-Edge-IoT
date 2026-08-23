@@ -9,7 +9,7 @@ const permissionByType: Record<ManagedEntityType, Permission> = {
   equipment: "manage_equipment",
   associations: "manage_associations",
 };
-const equipmentKinds = ["Tractor", "Trilladora", "Cuatrimoto"] as const;
+const equipmentKinds = ["Tractor", "Trilladora", "Camión", "Camioneta", "Otro"] as const;
 
 export async function handleManagedEntitiesRequest(request: Request, env: AuthEnvironment): Promise<Response | null> {
   const url = new URL(request.url);

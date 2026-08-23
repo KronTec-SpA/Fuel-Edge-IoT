@@ -116,7 +116,7 @@ async function seedManagedEntities(db: D1DatabaseLike) {
     ["eq-01", "Tractor New Holland T7", "Tractor", "Permanente", "KT-MOD-0018", "site-santa-isabel", 1, null],
     ["eq-02", "Tractor John Deere 6155M", "Tractor", "Permanente", "KT-MOD-0021", "site-santa-isabel", 1, null],
     ["eq-03", "Trilladora contratista", "Trilladora", "Temporal", "KT-MOD-0024", "site-santa-isabel", 1, "2026-08-28T23:59:00.000Z"],
-    ["eq-04", "Cuatrimoto de inspección", "Cuatrimoto", "Temporal", "KT-MOD-0032", "site-santa-isabel", 1, "2026-08-28T23:59:00.000Z"],
+    ["eq-04", "Camioneta de inspección", "Camioneta", "Temporal", "KT-MOD-0032", "site-santa-isabel", 1, "2026-08-28T23:59:00.000Z"],
     ["eq-05", "Tractor auxiliar", "Tractor", "Externo", "Sin módulo", "", 0, null],
   ];
   const associations = [

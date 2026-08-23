@@ -3,11 +3,12 @@
 import { FormEvent, useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 
 type ManagedEntityType = "operators" | "equipment" | "associations";
-type EquipmentKind = "Tractor" | "Trilladora" | "Cuatrimoto";
+type EquipmentKind = "Tractor" | "Trilladora" | "Camión" | "Camioneta" | "Otro";
 type EnrollmentAssignment = { name: string; kind: EquipmentKind; validUntil: string };
 
 type View =
   | "overview"
+  | "adoption"
   | "machineMap"
   | "transactions"
   | "fuelHistory"
@@ -17,7 +18,10 @@ type View =
   | "associations"
   | "alerts"
   | "access"
+  | "data"
   | "system";
+
+type DataExportDataset = "all" | "levels" | "transactions" | "users" | "operators" | "equipment" | "associations" | "credentials" | "alerts";
 
 type Modal =
   | { type: "operator" }
@@ -135,12 +139,30 @@ type BluetoothObservation = {
 
 type RelayTestCommand = {
   id: string;
+  transactionType: "pump_test";
   status: "pending" | "running" | "completed" | "failed" | "expired";
-  durationSeconds: 10;
+  durationSeconds: number;
   requestedAt: string;
   startedAt: string | null;
   completedAt: string | null;
   expiresAt: string;
+  error: string | null;
+};
+
+type ManualModeSchedule = {
+  id: string;
+  actorUserId: string;
+  actorRole: "master" | "administrator" | "supervisor";
+  actorName: string;
+  siteId: string;
+  purpose: "manual" | "adoption_assisted";
+  status: "scheduled" | "active" | "completed" | "cancelled" | "expired" | "failed";
+  startAt: string;
+  endAt: string;
+  requestedAt: string;
+  startedAt: string | null;
+  completedAt: string | null;
+  cancelledAt: string | null;
   error: string | null;
 };
 
@@ -159,6 +181,7 @@ type AlertComment = {
   id: string;
   actor: string;
   comment: string;
+  eventType: "follow_up" | "reopened";
   statusAfter: AlertStatus;
   priorityAfter: AlertPriority;
   recordedAt: string;
@@ -172,6 +195,12 @@ type AlertItem = {
   detail: string;
   time: string;
   acknowledged: boolean;
+  parentAlertId: string | null;
+  rootAlertId: string;
+  reopenNumber: number;
+  reopenedAsAlertId: string | null;
+  reopenedBy?: string | null;
+  reopenReason?: string | null;
   comments?: AlertComment[];
 };
 
@@ -183,7 +212,7 @@ type Transaction = {
   equipment: string;
   liters: number;
   duration: string;
-  status: "Completada" | "Interrumpida" | "Excepcional";
+  status: "Completada" | "Interrumpida" | "Excepcional" | "Habilitación de bomba";
   validation: string;
   source: string;
 };
@@ -193,6 +222,7 @@ type TransactionStatusFilter = "Todas" | Transaction["status"];
 type FuelMovement = {
   id: string;
   type: "receipt" | "dispatch";
+  classification: "standard" | "pump_enablement";
   occurredAt: string;
   liters: number;
   openingLevel: number;
@@ -205,16 +235,47 @@ type FuelMovement = {
   equipmentId?: string | null;
   equipmentName?: string | null;
   isMaster?: boolean;
+  authorizationEvidence: "full" | "rfid_only" | "assisted" | "master" | "unauthorized" | "legacy";
+  adoptionStage: TechnologyAdoptionStage | null;
+  assistedMode: boolean;
+  equipmentIssue: string | null;
   detectedAutomatically: boolean;
   confidence: number;
   status: "confirmed" | "accumulating";
+  reviewStatus: "not_required" | "pending" | "approved" | "corrected" | "rejected";
+  originalLiters: number | null;
+  documentReference: string | null;
+  reviewedByUserId: string | null;
+  reviewedByName: string | null;
+  reviewedAt: string | null;
+  reviewNote: string | null;
 };
 
 type FuelHistoryResponse = {
   movements: FuelMovement[];
-  summary: { receivedLiters: number; dispatchedLiters: number; netLiters: number; movementCount: number };
-  sensor: { capacityLiters: number; currentLevel: number; latestReadingAt: string; receiptThresholdLiters: number; detectionStatus: "monitoring" | "detecting" };
-  edge: { moduleId: string; siteId: string; state: string; relayEnergized: boolean; validatorOnline: boolean; nfcReady: boolean; k24Enabled: boolean; k24Healthy: boolean; tankLevelEnabled: boolean; occurredAt: string } | null;
+  pendingReceipts: FuelMovement[];
+  summary: { receivedLiters: number; dispatchedLiters: number; pumpEnablementLiters: number; netLiters: number; movementCount: number; pendingReceiptCount: number };
+  sensor: { capacityLiters: number; currentLevel: number; latestReadingAt: string; receiptThresholdLiters: number; acceptedVariationPercent: number; detectionStatus: "monitoring" | "detecting" };
+  edge: { moduleId: string; siteId: string; state: string; relayEnergized: boolean; validatorOnline: boolean; nfcReady: boolean; k24Enabled: boolean; k24Healthy: boolean; tankLevelEnabled: boolean; telemetrySessionId: string | null; technologyAdoptionStage: TechnologyAdoptionStage; adoptionPolicyRevision: number; occurredAt: string } | null;
+};
+
+type TechnologyAdoptionStage = "assisted" | "rfid_only" | "full";
+type TechnologyAdoptionProgramStatus = "inactive" | "active" | "completed";
+type TechnologyAdoptionDashboard = {
+  settings: {
+    siteId: string; stage: TechnologyAdoptionStage; programStatus: TechnologyAdoptionProgramStatus; revision: number;
+    programStartedAt: string; completedAt: string | null; stageStartedAt: string; reviewAt: string | null;
+    updatedBy: string | null; updatedByName: string | null; updatedAt: string; note: string;
+  };
+  metrics: {
+    days: number; totalLoads: number; totalLiters: number;
+    identifiedLoads: number; identifiedLiters: number; rfidCoverage: number;
+    fullLoads: number; fullLiters: number; fullCoverage: number;
+    assistedLoads: number; assistedLiters: number;
+  };
+  recommendation: { ready: boolean; title: string; detail: string };
+  edgeApplication: { stage: TechnologyAdoptionStage | null; revision: number; occurredAt: string | null; applied: boolean } | null;
+  history: { id: string; fromStage: TechnologyAdoptionStage; toStage: TechnologyAdoptionStage; reason: string; actorName: string; occurredAt: string }[];
 };
 
 type AuthUser = {
@@ -225,7 +286,7 @@ type AuthUser = {
   mustChangePassword: boolean;
 };
 
-type Permission = "view_dashboard" | "view_transactions" | "manage_alerts" | "manage_operators" | "manage_equipment" | "manage_associations" | "manage_users" | "manage_system";
+type Permission = "view_dashboard" | "view_transactions" | "manage_receipts" | "manage_alerts" | "manage_operators" | "manage_equipment" | "manage_associations" | "manage_users" | "manage_system";
 type UserRole = "master" | "administrator" | "supervisor" | "viewer";
 type WebUser = {
   id: string;
@@ -245,7 +306,14 @@ type AuthState =
   | { status: "signed-out" }
   | { status: "signed-in"; user: AuthUser };
 
-const SITE_VERSION = "V.1.5.2";
+const SITE_VERSION = "V.1.9.2";
+
+const releaseNotes = [
+  { title: "Adopción iniciada desde Sistema", detail: "Administración decide cuándo comenzar el aprendizaje tecnológico con un control protegido." },
+  { title: "Ruta visible sólo mientras aporta", detail: "La pestaña y sus indicadores aparecen durante el programa y desaparecen al completarlo." },
+  { title: "Histórico primero", detail: "El histórico de combustible antecede a Cargas porque integra recepciones, despachos y nivel." },
+  { title: "Progreso orientado a la acción", detail: "Cada etapa indica cuántas cargas faltan para completar el aprendizaje." },
+] as const;
 
 const seedOperators: Operator[] = [];
 
@@ -259,18 +327,21 @@ const seedAlerts: AlertItem[] = [];
 
 const navItems: { id: View; label: string; short: string; group: "operate" | "manage" | "support" }[] = [
   { id: "overview", label: "Resumen", short: "RE", group: "operate" },
+  { id: "fuelHistory", label: "Histórico de combustible", short: "HC", group: "operate" },
   { id: "transactions", label: "Cargas", short: "CA", group: "operate" },
-  { id: "fuelHistory", label: "Histórico combustible", short: "HC", group: "operate" },
   { id: "alerts", label: "Alertas", short: "AL", group: "operate" },
+  { id: "adoption", label: "Adopción tecnológica", short: "AT", group: "operate" },
   { id: "operators", label: "Operadores", short: "OP", group: "manage" },
   { id: "equipment", label: "Equipos", short: "EQ", group: "manage" },
   { id: "associations", label: "Asociaciones", short: "AS", group: "manage" },
   { id: "access", label: "Usuarios", short: "US", group: "support" },
+  { id: "data", label: "Data", short: "DT", group: "support" },
   { id: "system", label: "Sistema", short: "SI", group: "support" },
 ];
 
 const viewCopy: Record<View, { eyebrow: string; title: string; description: string }> = {
   overview: { eyebrow: "Operación local", title: "Fundo Santa Isabel", description: "Visión en tiempo real del abastecimiento y la infraestructura edge." },
+  adoption: { eyebrow: "Transformación en terreno", title: "Adopción tecnológica", description: "Una ruta gradual para convertir el uso de RFID y MIM en un hábito operacional medible." },
   machineMap: { eyebrow: "Activos · Equipos abastecibles", title: "Mapa de máquinas", description: "MIMs visibles y autenticados por el validador, ubicados según la intensidad Bluetooth recibida." },
   transactions: { eyebrow: "Trazabilidad", title: "Cargas de combustible", description: "Cada despacho conserva identidad, volumen, tiempo y evidencia de validación." },
   fuelHistory: { eyebrow: "Inventario y trazabilidad", title: "Histórico de combustible", description: "Analiza recepciones, despachos y variaciones del nivel del estanque a través del tiempo." },
@@ -280,8 +351,17 @@ const viewCopy: Record<View, { eyebrow: string; title: string; description: stri
   associations: { eyebrow: "Autorizaciones", title: "Asociaciones vigentes", description: "Define qué operador está autorizado para abastecer cada equipo." },
   alerts: { eyebrow: "Supervisión", title: "Alertas", description: "Eventos accionables de inventario, validación y salud del sistema." },
   access: { eyebrow: "Seguridad", title: "Usuarios y permisos", description: "Enrola cuentas, asigna roles y controla el acceso efectivo al sistema." },
+  data: { eyebrow: "Soporte · Datos", title: "Data", description: "Descarga conjuntos de datos operacionales para análisis, conciliación y respaldo." },
   system: { eyebrow: "Infraestructura", title: "Salud del sistema", description: "Estado del controlador, sensores, comunicaciones y respaldos locales." },
 };
+
+const adoptionStageCopy: Record<TechnologyAdoptionStage, { number: number; short: string; title: string; detail: string; benefit: string }> = {
+  assisted: { number: 1, short: "Aprendizaje", title: "Aprendizaje asistido", detail: "La faena continúa dentro de una ventana aprobada mientras el equipo practica RFID y MIM.", benefit: "Aprender sin detener la operación" },
+  rfid_only: { number: 2, short: "Identidad RFID", title: "Identidad RFID", detail: "Un tag vigente y mantenido identifica al operador; el MIM agrega evidencia cuando está disponible.", benefit: "Responsable identificado en cada carga" },
+  full: { number: 3, short: "Integrada", title: "Trazabilidad completa", detail: "RFID, MIM, asociación y fundo forman la evidencia mínima de autorización.", benefit: "Operador y máquina completamente validados" },
+};
+
+const adoptionStages: TechnologyAdoptionStage[] = ["assisted", "rfid_only", "full"];
 
 export default function Home() {
   const [auth, setAuth] = useState<AuthState>({ status: "checking" });
@@ -289,6 +369,7 @@ export default function Home() {
   const [view, setView] = useState<View>("overview");
   const [menuOpen, setMenuOpen] = useState(false);
   const [profileOpen, setProfileOpen] = useState(false);
+  const [whatsNewOpen, setWhatsNewOpen] = useState(false);
   const [search, setSearch] = useState("");
   const [transactionStatus, setTransactionStatus] = useState<TransactionStatusFilter>("Todas");
   const [modal, setModal] = useState<Modal>(null);
@@ -306,11 +387,14 @@ export default function Home() {
   const [transactions, setTransactions] = useState<Transaction[]>(initialTransactions);
   const [fuelSensor, setFuelSensor] = useState<FuelHistoryResponse["sensor"] | null>(null);
   const [edgeStatus, setEdgeStatus] = useState<FuelHistoryResponse["edge"]>(null);
+  const [adoption, setAdoption] = useState<TechnologyAdoptionDashboard | null>(null);
+  const [adoptionLoading, setAdoptionLoading] = useState(false);
   const [entityError, setEntityError] = useState("");
   const [entitiesLoading, setEntitiesLoading] = useState(false);
   const [rfidLoading, setRfidLoading] = useState(false);
   const [clock, setClock] = useState("");
   const [nowMs, setNowMs] = useState(0);
+  const [exportingDataset, setExportingDataset] = useState<DataExportDataset | null>(null);
 
   const refreshEntities = useCallback(async () => {
     const response = await fetch("/api/managed-entities", { credentials: "same-origin", cache: "no-store" });
@@ -366,6 +450,12 @@ export default function Home() {
     if (!response.ok || !body.observations) throw new Error(body.error ?? "No fue posible consultar los MIM enlazados.");
     setMachineObservations(body.observations);
   }, []);
+  const refreshAdoption = useCallback(async () => {
+    const response = await fetch("/api/technology-adoption", { credentials: "same-origin", cache: "no-store" });
+    const body = await response.json() as TechnologyAdoptionDashboard & { error?: string };
+    if (!response.ok || !body.settings) throw new Error(body.error ?? "No fue posible cargar la adopción tecnológica.");
+    setAdoption(body);
+  }, []);
   const canLoadManagedEntities = auth.status === "signed-in"
     && auth.user.permissions.some((permission) => ["manage_operators", "manage_equipment", "manage_associations"].includes(permission));
 
@@ -418,10 +508,12 @@ export default function Home() {
   useEffect(() => {
     if (auth.status !== "signed-in") return;
     const frame = window.requestAnimationFrame(() => {
-      Promise.all([refreshAlerts(), refreshTransactions()]).catch((error: unknown) => setEntityError(error instanceof Error ? error.message : "No fue posible cargar la operación."));
+      setAdoptionLoading(true);
+      Promise.all([refreshAlerts(), refreshTransactions(), refreshAdoption()]).catch((error: unknown) => setEntityError(error instanceof Error ? error.message : "No fue posible cargar la operación."))
+        .finally(() => setAdoptionLoading(false));
     });
     return () => window.cancelAnimationFrame(frame);
-  }, [auth.status, refreshAlerts, refreshTransactions]);
+  }, [auth.status, refreshAdoption, refreshAlerts, refreshTransactions]);
 
   useEffect(() => {
     if (auth.status !== "signed-in" || !["overview", "equipment"].includes(view) || !auth.user.permissions.includes("manage_equipment")) return;
@@ -449,12 +541,21 @@ export default function Home() {
         refreshOperationalStatus(),
         refreshAlerts(),
         refreshTransactions(),
+        refreshAdoption(),
       ]).catch(() => undefined).finally(() => { refreshing = false; });
     };
     refresh();
     const timer = window.setInterval(refresh, 5000);
     return () => window.clearInterval(timer);
-  }, [auth.status, refreshAlerts, refreshOperationalStatus, refreshTransactions]);
+  }, [auth.status, refreshAdoption, refreshAlerts, refreshOperationalStatus, refreshTransactions]);
+
+  useEffect(() => {
+    if (view !== "adoption" || !adoption || adoption.settings.programStatus === "active") return;
+    const canOpenSystem = auth.status === "signed-in"
+      && (auth.user.permissions.includes("manage_system") || ["master", "administrator", "supervisor"].includes(auth.user.roleCode));
+    const frame = window.requestAnimationFrame(() => setView(canOpenSystem ? "system" : "overview"));
+    return () => window.cancelAnimationFrame(frame);
+  }, [adoption, auth, view]);
 
   useEffect(() => {
     if (auth.status !== "signed-in" || view !== "machineMap") return;
@@ -496,6 +597,16 @@ export default function Home() {
     return () => window.clearTimeout(timer);
   }, [toast]);
 
+  useEffect(() => {
+    const closeHeaderMenus = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      setWhatsNewOpen(false);
+      setProfileOpen(false);
+    };
+    window.addEventListener("keydown", closeHeaderMenus);
+    return () => window.removeEventListener("keydown", closeHeaderMenus);
+  }, []);
+
   useEffect(() => () => {
     if (networkScanTimer.current !== null) window.clearTimeout(networkScanTimer.current);
   }, []);
@@ -505,6 +616,7 @@ export default function Home() {
     setSearch("");
     if (next === "transactions") setTransactionStatus("Todas");
     setMenuOpen(false);
+    setWhatsNewOpen(false);
   };
 
   const visibleTransactions = transactions.filter((item) => {
@@ -527,6 +639,31 @@ export default function Home() {
     link.click();
     URL.revokeObjectURL(url);
     setToast("Exportación preparada correctamente");
+  };
+
+  const downloadDatabase = async (dataset: DataExportDataset) => {
+    setExportingDataset(dataset);
+    setEntityError("");
+    try {
+      const response = await fetch(`/api/data-export?dataset=${encodeURIComponent(dataset)}`, { credentials: "same-origin", cache: "no-store" });
+      if (!response.ok) {
+        const body = await response.json() as { error?: string };
+        throw new Error(body.error ?? "No fue posible preparar la exportación.");
+      }
+      const disposition = response.headers.get("content-disposition") ?? "";
+      const filename = /filename="([^"]+)"/u.exec(disposition)?.[1] ?? "base-datos-fundo-santa-isabel.json";
+      const url = URL.createObjectURL(await response.blob());
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = filename;
+      link.click();
+      window.setTimeout(() => URL.revokeObjectURL(url), 0);
+      setToast(dataset === "all" ? "Base operacional exportada correctamente" : "Conjunto de datos exportado correctamente");
+    } catch (error) {
+      setEntityError(error instanceof Error ? error.message : "No fue posible preparar la exportación.");
+    } finally {
+      setExportingDataset(null);
+    }
   };
 
   const managedRequest = async (type: ManagedEntityType, method: "POST" | "PATCH" | "DELETE", payload?: object, id?: string) => {
@@ -650,6 +787,17 @@ export default function Home() {
     await refreshAlerts();
     setToast(body.resolved ? "Seguimiento registrado y alerta resuelta" : "Seguimiento agregado; la alerta continúa abierta");
   };
+  const reopenAlert = async (alertId: string, update: { reason: string; priority: AlertPriority }) => {
+    const response = await fetch(`/api/alerts/${encodeURIComponent(alertId)}/reopen`, {
+      method: "POST", credentials: "same-origin", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(update),
+    });
+    const body = await response.json() as { reopened?: boolean; alertId?: string; reopenNumber?: number; error?: string };
+    if (!response.ok || !body.reopened || !body.alertId) throw new Error(body.error ?? "No fue posible reabrir la alerta.");
+    await refreshAlerts();
+    setModal({ type: "alertDetail", alertId: body.alertId });
+    setToast(`Alerta reabierta como ciclo ${body.reopenNumber ?? 1}; quedó pendiente de atención`);
+  };
 
   const resetFuelData = async (password: string) => {
     const response = await fetch("/api/fuel-history/reset", {
@@ -700,6 +848,7 @@ export default function Home() {
 
   const logout = async () => {
     setProfileOpen(false);
+    setWhatsNewOpen(false);
     try {
       await fetch("/api/auth/logout", { method: "POST", credentials: "same-origin" });
     } finally {
@@ -714,6 +863,7 @@ export default function Home() {
     return <LoginScreen initialError={authError} onLogin={login} />;
   }
   const currentUser = auth.user;
+  const adoptionActive = adoption?.settings.programStatus === "active";
   const changeOwnPassword = async (newPassword: string) => {
     const response = await fetch("/api/auth/change-password", {
       method: "POST",
@@ -732,7 +882,7 @@ export default function Home() {
   return (
     <div className="app-shell">
       <a className="skip-link" href="#main-content">Saltar al contenido</a>
-      <Sidebar view={view} open={menuOpen} edgeOnline={edgeOnline} validatorConnected={validatorConnected} alertCount={pendingAlerts} permissions={currentUser.permissions} onNavigate={openView} onClose={() => setMenuOpen(false)} />
+      <Sidebar view={view} open={menuOpen} edgeOnline={edgeOnline} validatorConnected={validatorConnected} alertCount={pendingAlerts} permissions={currentUser.permissions} roleCode={currentUser.roleCode} adoptionActive={adoptionActive} onNavigate={openView} onClose={() => setMenuOpen(false)} />
 
       <div className="app-main">
         <header className="topbar">
@@ -744,16 +894,29 @@ export default function Home() {
               <span className="site-indicator" />
               <span><small>Locación</small><strong>Fundo Santa Isabel</strong></span>
             </div>
+            {adoptionActive && <TechnologyAdoptionTag dashboard={adoption} loading={adoptionLoading} onOpen={() => openView("adoption")} />}
           </div>
           <div className="topbar-center" aria-label="Estado de conexión">
             <span className={`online-dot ${validatorConnected ? "" : "offline"}`} /> <strong>{validatorConnected ? "Validador conectado" : "Validador no conectado"}</strong><span className="topbar-edge-state">{edgeOnline ? "Edge en línea" : "Edge sin reporte"}</span><span className="topbar-time">{clock}</span>
           </div>
           <div className="topbar-actions">
-            <button className="icon-button notification-button" aria-label={`${pendingAlerts} alertas pendientes`} onClick={() => openView("alerts")}>
-              <span aria-hidden="true">!</span>{pendingAlerts > 0 && <b>{pendingAlerts}</b>}
+            <div className="whats-new-wrap">
+              <button className="whats-new-button" type="button" aria-label="Novedades de la actualización" aria-expanded={whatsNewOpen} aria-controls="whats-new-panel" onClick={() => { setWhatsNewOpen(!whatsNewOpen); setProfileOpen(false); }}>
+                <span className="whats-new-icon" aria-hidden="true">✦</span><span className="whats-new-label">Novedades</span>
+              </button>
+              {whatsNewOpen && (
+                <section id="whats-new-panel" className="whats-new-panel" aria-label={`Novedades de ${SITE_VERSION}`}>
+                  <div className="whats-new-heading"><div><span>ACTUALIZACIÓN ACTUAL</span><strong>{SITE_VERSION}</strong></div><time dateTime="2026-08-23">23 AGO 2026</time></div>
+                  <p>Lo principal de esta versión, en breve.</p>
+                  <ol>{releaseNotes.map((note) => <li key={note.title}><span aria-hidden="true">✓</span><div><strong>{note.title}</strong><p>{note.detail}</p></div></li>)}</ol>
+                </section>
+              )}
+            </div>
+            <button className="icon-button notification-button" type="button" aria-label={`${pendingAlerts} alertas pendientes`} onClick={() => openView("alerts")}>
+              <span aria-hidden="true">!</span>{pendingAlerts > 0 && <b>{formatAlertBadge(pendingAlerts)}</b>}
             </button>
             <div className="profile-wrap">
-              <button className="profile-button" type="button" aria-expanded={profileOpen} onClick={() => setProfileOpen(!profileOpen)}>
+              <button className="profile-button" type="button" aria-expanded={profileOpen} onClick={() => { setProfileOpen(!profileOpen); setWhatsNewOpen(false); }}>
                 <span className="avatar">PC</span><span className="profile-copy"><strong>{currentUser.name}</strong><small>{currentUser.role}</small></span><span className="chevron">⌄</span>
               </button>
               {profileOpen && (
@@ -777,21 +940,23 @@ export default function Home() {
           {entityError && <div className="auth-error content-error" role="alert"><span>!</span>{entityError}</div>}
           {(entitiesLoading && ["operators", "equipment", "associations"].includes(view) || rfidLoading && view === "rfidCredentials") && <div className="panel entity-loading" role="status">Cargando registros locales…</div>}
 
-          {view === "overview" && <Overview alerts={alerts} transactions={transactions} sensor={fuelSensor} edge={edgeStatus} edgeOnline={edgeOnline} equipment={equipment} nowMs={nowMs} canScanNetwork={currentUser.permissions.includes("manage_equipment")} networkScanState={networkScanState} onNetworkScan={startNetworkScan} onNavigate={openView} onTransaction={(id) => setModal({ type: "transaction", id })} />}
+          {view === "overview" && <Overview alerts={alerts} transactions={transactions} sensor={fuelSensor} edge={edgeStatus} edgeOnline={edgeOnline} equipment={equipment} adoption={adoptionActive ? adoption : null} nowMs={nowMs} canScanNetwork={currentUser.permissions.includes("manage_equipment")} networkScanState={networkScanState} onNetworkScan={startNetworkScan} onNavigate={openView} onTransaction={(id) => setModal({ type: "transaction", id })} />}
+          {view === "adoption" && adoptionActive && <TechnologyAdoptionView key={`${adoption.settings.revision}-${adoption.settings.updatedAt}`} dashboard={adoption} loading={adoptionLoading} edge={edgeStatus} online={edgeOnline} roleCode={currentUser.roleCode} permissions={currentUser.permissions} onRefresh={async () => { await Promise.all([refreshAdoption(), refreshOperationalStatus(), refreshTransactions()]); }} />}
           {view === "machineMap" && <MachineMap observations={machineObservations} validatorConnected={validatorConnected} nowMs={nowMs} />}
           {view === "transactions" && <Transactions search={search} status={transactionStatus} items={visibleTransactions} allItems={transactions} onSearch={setSearch} onStatus={setTransactionStatus} onExport={() => downloadCsv(visibleTransactions)} onOpen={(id) => setModal({ type: "transaction", id })} />}
-          {view === "fuelHistory" && <FuelHistoryView />}
+          {view === "fuelHistory" && <FuelHistoryView canManageReceipts={currentUser.permissions.includes("manage_receipts")} />}
           {view === "operators" && !entitiesLoading && <Operators operators={operators} search={search} isProviderAdmin={currentUser.roleCode === "master"} onSearch={setSearch} onToggle={(item) => updateManaged("operators", item.id, { active: !item.active }, "Estado del operador actualizado")} onArchive={(item, archived) => updateManaged("operators", item.id, { archived }, archived ? "Operador enviado al histórico" : "Operador restaurado")} onDelete={(item) => setModal({ type: "permanentDelete", entityType: "operators", id: item.id, name: item.name })} onReplace={(item) => setModal({ type: "enroll", operatorId: item.id, operatorName: item.name, credentialIsMaster: item.credentialIsMaster })} onCredentials={() => openView("rfidCredentials")} />}
           {view === "rfidCredentials" && !rfidLoading && <RfidCredentialsView credentials={rfidCredentials} operators={operators} isProviderAdmin={currentUser.roleCode === "master"} onIdentify={() => setModal({ type: "identifyCredential" })} onCreate={() => setModal({ type: "createCredential" })} onAssign={(credentialId) => setModal({ type: "rfidAssignment", credentialId })} onUnassign={(credentialId) => void unassignRfid(credentialId)} onDelete={(credentialId) => setModal({ type: "deleteCredential", credentialId })} />}
           {view === "equipment" && !entitiesLoading && <EquipmentView equipment={equipment} candidates={enrollmentCandidates} scan={equipmentScan} search={search} nowMs={nowMs} isProviderAdmin={currentUser.roleCode === "master"} onSearch={setSearch} onToggle={(item) => updateManaged("equipment", item.id, { active: !item.active }, "Estado del equipo actualizado")} onArchive={(item, archived) => updateManaged("equipment", item.id, { archived }, archived ? "Equipo enviado al histórico" : "Equipo restaurado")} onDelete={(item) => setModal({ type: "permanentDelete", entityType: "equipment", id: item.id, name: item.name })} onOpen={(id) => setModal({ type: "equipmentDetail", id })} onEnroll={(moduleId) => setModal({ type: "equipmentEnrollment", moduleId })} onRefresh={requestEquipmentScan} />}
           {view === "associations" && !entitiesLoading && <AssociationsView associations={associations} operators={operators} equipment={equipment} isProviderAdmin={currentUser.roleCode === "master"} onToggle={(item) => updateManaged("associations", item.id, { active: !item.active }, "Asociación actualizada")} onArchive={(item, archived) => updateManaged("associations", item.id, { archived }, archived ? "Asociación enviada al histórico" : "Asociación restaurada")} onDelete={(item, name) => setModal({ type: "permanentDelete", entityType: "associations", id: item.id, name })} />}
           {view === "alerts" && <AlertsView alerts={alerts} canManage={currentUser.permissions.includes("manage_alerts")} onOpen={(id) => setModal({ type: "alertDetail", alertId: id })} />}
           {view === "access" && currentUser.permissions.includes("manage_users") && <AccessView canDeleteUsers={currentUser.roleCode === "master"} />}
-          {view === "system" && <SystemView edge={edgeStatus} sensor={fuelSensor} online={edgeOnline} canManage={currentUser.permissions.includes("manage_system")} onRefresh={refreshOperationalStatus} onReset={resetFuelData} />}
+          {view === "data" && <DataExportView exporting={exportingDataset} onExport={downloadDatabase} />}
+          {view === "system" && <SystemView edge={edgeStatus} sensor={fuelSensor} adoption={adoption} adoptionLoading={adoptionLoading} online={edgeOnline} canManage={currentUser.permissions.includes("manage_system")} canManageAdoption={["master", "administrator"].includes(currentUser.roleCode) && currentUser.permissions.includes("manage_system")} canManageManualMode={["master", "administrator", "supervisor"].includes(currentUser.roleCode)} canTestPump={["master", "administrator"].includes(currentUser.roleCode) && currentUser.permissions.includes("manage_system")} onRefresh={refreshOperationalStatus} onRefreshAdoption={async () => { await Promise.all([refreshAdoption(), refreshOperationalStatus()]); }} onOpenAdoption={() => openView("adoption")} onReset={resetFuelData} />}
         </main>
       </div>
 
-      {modal && <ModalLayer modal={modal} alerts={alerts} transactions={transactions} operators={operators} rfidCredentials={rfidCredentials} equipment={equipment} candidates={enrollmentCandidates} userName={currentUser.name} canManageAlerts={currentUser.permissions.includes("manage_alerts")} isProviderAdmin={currentUser.roleCode === "master"} onClose={() => setModal(null)} onAddOperator={createOperator} onAddEquipment={(item) => createManaged("equipment", item, "Equipo creado correctamente")} onAddAssociation={(item) => createManaged("associations", item, "Asociación creada y vigente")} onEnrollEquipment={enrollEquipment} onNfcEnrolled={async () => { await Promise.all([refreshEntities(), refreshRfidCredentials()]); setToast("Credencial RFID enrolada y sincronizada con la Raspberry"); }} onAssignRfid={assignRfid} onDeleteRfid={deleteRfid} onPermanentDelete={permanentlyDelete} onUpdateAlert={updateAlert} />}
+      {modal && <ModalLayer modal={modal} alerts={alerts} transactions={transactions} operators={operators} rfidCredentials={rfidCredentials} equipment={equipment} candidates={enrollmentCandidates} userName={currentUser.name} canManageAlerts={currentUser.permissions.includes("manage_alerts")} isProviderAdmin={currentUser.roleCode === "master"} onClose={() => setModal(null)} onAddOperator={createOperator} onAddEquipment={(item) => createManaged("equipment", item, "Equipo creado correctamente")} onAddAssociation={(item) => createManaged("associations", item, "Asociación creada y vigente")} onEnrollEquipment={enrollEquipment} onNfcEnrolled={async () => { await Promise.all([refreshEntities(), refreshRfidCredentials()]); setToast("Credencial RFID enrolada y sincronizada con la Raspberry"); }} onAssignRfid={assignRfid} onDeleteRfid={deleteRfid} onPermanentDelete={permanentlyDelete} onUpdateAlert={updateAlert} onReopenAlert={reopenAlert} onOpenAlert={(alertId) => setModal({ type: "alertDetail", alertId })} />}
       {toast && <div className="toast" role="status"><span>✓</span>{toast}</div>}
     </div>
   );
@@ -818,7 +983,7 @@ function LoginScreen({ initialError, onLogin }: { initialError: string; onLogin:
     }
   };
   if (recovering) return <RecoveryScreen onBack={() => setRecovering(false)} />;
-  return <main className="auth-shell"><section className="auth-card"><div className="auth-brand"><span className="auth-mark">CT</span><div><strong>Concha y Toro -</strong><span>Monitoreo Combustible</span></div></div><div className="auth-copy"><span className="eyebrow">Fundo Santa Isabel</span><h1>Acceso al sistema</h1><p>Ingresa con tu cuenta autorizada para consultar y administrar la operación local.</p></div><form className="auth-form" onSubmit={submit}><label>Correo electrónico<input name="email" type="email" autoComplete="username" required placeholder="nombre@empresa.cl" /></label><label>Contraseña<input name="password" type="password" autoComplete="current-password" required minLength={10} /></label><button className="auth-link" type="button" onClick={() => setRecovering(true)}>¿Olvidaste tu contraseña?</button>{error && <div className="auth-error" role="alert"><span>!</span>{error}</div>}<button className="primary-button" type="submit" disabled={submitting}>{submitting ? "Verificando…" : "Iniciar sesión"}</button></form></section><AuthSide /></main>;
+  return <main className="auth-shell"><section className="auth-card"><div className="auth-brand"><span className="auth-mark">CT</span><div><strong>Concha y Toro -</strong><span>Monitoreo Combustible</span></div></div><div className="auth-copy"><span className="eyebrow">Fundo Santa Isabel</span><h1>Acceso al sistema</h1><p>Ingresa con tu cuenta autorizada para consultar y administrar la operación local.</p></div><form className="auth-form" onSubmit={submit}><label>Correo electrónico<input name="email" type="email" autoComplete="username" required placeholder="nombre@empresa.cl" /></label><label>Contraseña<input name="password" type="password" autoComplete="current-password" required minLength={10} /></label><button className="auth-link" type="button" onClick={() => setRecovering(true)}>¿Olvidaste tu contraseña?</button>{error && <div className="auth-error" role="alert"><span>!</span>{error}</div>}<button className="primary-button" type="submit" disabled={submitting}>{submitting ? "Verificando…" : "Iniciar sesión"}</button></form><AuthVersion /></section><AuthSide /></main>;
 }
 
 function RecoveryScreen({ onBack }: { onBack: () => void }) {
@@ -840,20 +1005,95 @@ function RecoveryScreen({ onBack }: { onBack: () => void }) {
     if (!response.ok || !body.recovered) { setError(body.error ?? "No fue posible recuperar el acceso."); return; }
     setSuccess(true);
   };
-  return <main className="auth-shell"><section className="auth-card"><div className="auth-brand"><span className="auth-mark">CT</span><div><strong>Recuperación segura</strong><span>Fundo Santa Isabel</span></div></div>{success ? <div className="auth-copy recovery-success"><span className="security-mark">✓</span><h1>Contraseña actualizada</h1><p>Ya puedes iniciar sesión con la nueva contraseña.</p><button className="primary-button" onClick={onBack}>Volver al inicio</button></div> : <><div className="auth-copy"><span className="eyebrow">CUENTA MAESTRA</span><h1>Recuperar acceso</h1><p>Utiliza el código de recuperación guardado fuera de la Raspberry al aprovisionar el sistema.</p></div><form className="auth-form" onSubmit={submit}><label>Correo maestro<input name="email" type="email" autoComplete="username" required /></label><label>Código de recuperación<input name="recoveryCode" autoComplete="off" required placeholder="XXXX-XXXX-XXXX-XXXX-XXXX" /></label><label>Nueva contraseña<input name="newPassword" type="password" autoComplete="new-password" required minLength={12} /></label><label>Repetir nueva contraseña<input name="confirmation" type="password" autoComplete="new-password" required minLength={12} /></label>{error && <div className="auth-error" role="alert"><span>!</span>{error}</div>}<button className="primary-button" disabled={submitting}>{submitting ? "Actualizando…" : "Cambiar contraseña"}</button><button className="auth-link centered" type="button" onClick={onBack}>Volver al inicio de sesión</button></form></>}</section><AuthSide recovery /></main>;
+  return <main className="auth-shell"><section className="auth-card"><div className="auth-brand"><span className="auth-mark">CT</span><div><strong>Recuperación segura</strong><span>Fundo Santa Isabel</span></div></div>{success ? <div className="auth-copy recovery-success"><span className="security-mark">✓</span><h1>Contraseña actualizada</h1><p>Ya puedes iniciar sesión con la nueva contraseña.</p><button className="primary-button" onClick={onBack}>Volver al inicio</button></div> : <><div className="auth-copy"><span className="eyebrow">CUENTA MAESTRA</span><h1>Recuperar acceso</h1><p>Utiliza el código de recuperación guardado fuera de la Raspberry al aprovisionar el sistema.</p></div><form className="auth-form" onSubmit={submit}><label>Correo maestro<input name="email" type="email" autoComplete="username" required /></label><label>Código de recuperación<input name="recoveryCode" autoComplete="off" required placeholder="XXXX-XXXX-XXXX-XXXX-XXXX" /></label><label>Nueva contraseña<input name="newPassword" type="password" autoComplete="new-password" required minLength={12} /></label><label>Repetir nueva contraseña<input name="confirmation" type="password" autoComplete="new-password" required minLength={12} /></label>{error && <div className="auth-error" role="alert"><span>!</span>{error}</div>}<button className="primary-button" disabled={submitting}>{submitting ? "Actualizando…" : "Cambiar contraseña"}</button><button className="auth-link centered" type="button" onClick={onBack}>Volver al inicio de sesión</button></form></>}<AuthVersion /></section><AuthSide recovery /></main>;
 }
 
 function PasswordChangeScreen({ user, onChange, onLogout }: { user: AuthUser; onChange: (password: string) => Promise<void>; onLogout: () => Promise<void> }) {
   const [error, setError] = useState(""); const [submitting, setSubmitting] = useState(false);
   const submit = async (event: FormEvent<HTMLFormElement>) => { event.preventDefault(); const form = new FormData(event.currentTarget); const password = String(form.get("password")); if (password !== String(form.get("confirmation"))) { setError("Las contraseñas no coinciden."); return; } setSubmitting(true); setError(""); try { await onChange(password); } catch (caught) { setError(caught instanceof Error ? caught.message : "No fue posible cambiar la contraseña."); setSubmitting(false); } };
-  return <main className="auth-shell"><section className="auth-card"><div className="auth-brand"><span className="auth-mark">{initials(user.name)}</span><div><strong>{user.name}</strong><span>Primer acceso</span></div></div><div className="auth-copy"><span className="eyebrow">PROTECCIÓN DE CUENTA</span><h1>Crea tu contraseña definitiva</h1><p>La clave temporal sólo sirve para este primer ingreso.</p></div><form className="auth-form" onSubmit={submit}><label>Nueva contraseña<input name="password" type="password" autoComplete="new-password" required minLength={12} /></label><label>Repetir contraseña<input name="confirmation" type="password" autoComplete="new-password" required minLength={12} /></label><small className="password-rules">Mínimo 12 caracteres, con mayúscula, minúscula, número y símbolo.</small>{error && <div className="auth-error" role="alert"><span>!</span>{error}</div>}<button className="primary-button" disabled={submitting}>{submitting ? "Guardando…" : "Guardar y continuar"}</button><button className="auth-link centered" type="button" onClick={onLogout}>Cerrar sesión</button></form></section><AuthSide /></main>;
+  return <main className="auth-shell"><section className="auth-card"><div className="auth-brand"><span className="auth-mark">{initials(user.name)}</span><div><strong>{user.name}</strong><span>Primer acceso</span></div></div><div className="auth-copy"><span className="eyebrow">PROTECCIÓN DE CUENTA</span><h1>Crea tu contraseña definitiva</h1><p>La clave temporal sólo sirve para este primer ingreso.</p></div><form className="auth-form" onSubmit={submit}><label>Nueva contraseña<input name="password" type="password" autoComplete="new-password" required minLength={12} /></label><label>Repetir contraseña<input name="confirmation" type="password" autoComplete="new-password" required minLength={12} /></label><small className="password-rules">Mínimo 12 caracteres, con mayúscula, minúscula, número y símbolo.</small>{error && <div className="auth-error" role="alert"><span>!</span>{error}</div>}<button className="primary-button" disabled={submitting}>{submitting ? "Guardando…" : "Guardar y continuar"}</button><button className="auth-link centered" type="button" onClick={onLogout}>Cerrar sesión</button></form><AuthVersion /></section><AuthSide /></main>;
+}
+
+function AuthVersion() {
+  return <small className="auth-version">© 2026 by KronTec · {SITE_VERSION}</small>;
 }
 
 function AuthSide({ recovery = false }: { recovery?: boolean }) {
   return <aside className="auth-side"><div><span className="eyebrow">OPERACIÓN LOCAL</span><h2>{recovery ? "Recuperación controlada, sin depender de Internet." : "Control y trazabilidad de petróleo en línea."}</h2></div></aside>;
 }
 
-function Sidebar({ view, open, edgeOnline, validatorConnected, alertCount, permissions, onNavigate, onClose }: { view: View; open: boolean; edgeOnline: boolean; validatorConnected: boolean; alertCount: number; permissions: Permission[]; onNavigate: (view: View) => void; onClose: () => void }) {
+function TechnologyAdoptionTag({ dashboard, loading, onOpen }: { dashboard: TechnologyAdoptionDashboard | null; loading: boolean; onOpen: () => void }) {
+  const stage = dashboard?.settings.stage ?? "full";
+  const copy = adoptionStageCopy[stage];
+  return <button className={`adoption-site-tag stage-${stage}`} type="button" onClick={onOpen} aria-label={`Abrir adopción tecnológica: ${copy.title}`}>
+    <span className="adoption-tag-mark">{loading && !dashboard ? "·" : copy.number}</span>
+    <span><small>ADOPCIÓN TECNOLÓGICA</small><strong>{loading && !dashboard ? "Consultando…" : copy.short}</strong></span>
+  </button>;
+}
+
+function TechnologyAdoptionView({ dashboard, loading, edge, online, roleCode, permissions, onRefresh }: { dashboard: TechnologyAdoptionDashboard | null; loading: boolean; edge: FuelHistoryResponse["edge"]; online: boolean; roleCode: string; permissions: Permission[]; onRefresh: () => Promise<void> }) {
+  const [editing, setEditing] = useState(false);
+  const [stage, setStage] = useState<TechnologyAdoptionStage>(dashboard?.settings.stage ?? "full");
+  const [reviewAt, setReviewAt] = useState(dashboard?.settings.reviewAt ? dateTimeLocalValue(new Date(dashboard.settings.reviewAt)) : "");
+  const [note, setNote] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+  if (!dashboard) return <div className="panel adoption-loading" role="status">{loading ? "Cargando la ruta de adopción…" : "La ruta de adopción todavía no está disponible."}</div>;
+  const current = dashboard.settings.stage;
+  const currentIndex = adoptionStages.indexOf(current);
+  const copy = adoptionStageCopy[current];
+  const canManageStage = ["master", "administrator"].includes(roleCode) && permissions.includes("manage_system");
+  const canSchedule = ["master", "administrator", "supervisor"].includes(roleCode);
+  const allowedStages = adoptionStages.filter((_, index) => Math.abs(index - currentIndex) <= 1);
+  const operatorSteps = current === "assisted"
+    ? ["Pulsa el botón del MIM para despertar la máquina.", "Presenta y mantén tu tag RFID en el validador.", "Espera la confirmación y comienza la carga."]
+    : current === "rfid_only"
+      ? ["Presenta y mantén tu tag RFID.", "Espera la confirmación del operador.", "Pulsa el MIM cuando esté disponible para sumar trazabilidad completa."]
+      : ["Pulsa el botón del MIM.", "Presenta y mantén tu tag RFID.", "Espera la confirmación de operador, máquina y asociación."];
+
+  const save = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault(); setSaving(true); setError("");
+    try {
+      const response = await fetch("/api/technology-adoption", {
+        method: "PUT", credentials: "same-origin", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ stage, reviewAt: reviewAt ? new Date(reviewAt).toISOString() : null, note }),
+      });
+      const body = await response.json() as { error?: string };
+      if (!response.ok) throw new Error(body.error ?? "No fue posible actualizar la etapa.");
+      setEditing(false); setNote(""); await onRefresh();
+    } catch (caught) { setError(caught instanceof Error ? caught.message : "No fue posible actualizar la etapa."); }
+    finally { setSaving(false); }
+  };
+
+  return <div className="adoption-layout">
+    <section className={`panel adoption-hero stage-${current}`}>
+      <div className="adoption-hero-copy"><span className="eyebrow">ETAPA {copy.number} DE 3 · FUNDO SANTA ISABEL</span><h2>{copy.title}</h2><p>{copy.detail}</p><div className="adoption-hero-benefit"><i>✓</i><span><small>CAPACIDAD ACTIVA</small><strong>{copy.benefit}</strong></span></div></div>
+      <div className="adoption-hero-progress"><div className="adoption-orbit"><strong>{copy.number}<small>/ 3</small></strong></div><span className={`adoption-edge-apply ${dashboard.edgeApplication?.applied ? "applied" : "pending"}`}><i />{dashboard.edgeApplication?.applied ? "Aplicado en el edge" : online ? "Esperando confirmación del edge" : "Edge sin reporte reciente"}</span></div>
+    </section>
+
+    <section className="panel adoption-path" aria-label="Etapas de adopción tecnológica"><div className="adoption-section-heading"><div><span className="eyebrow">Ruta de madurez</span><h2>El mínimo exigido crece; la mejor evidencia siempre cuenta</h2></div>{canManageStage && <button className="secondary-button compact" type="button" onClick={() => { setError(""); if (!editing) { setStage(current); setReviewAt(dashboard.settings.reviewAt ? dateTimeLocalValue(new Date(dashboard.settings.reviewAt)) : ""); } setEditing(!editing); }}>{editing ? "Cerrar decisión" : "Revisar etapa"}</button>}</div><ol>{adoptionStages.map((item, index) => { const itemCopy = adoptionStageCopy[item]; const active = item === current; const completed = index < currentIndex; return <li className={`${active ? "active" : ""} ${completed ? "completed" : ""}`} key={item}><span>{completed ? "✓" : itemCopy.number}</span><div><small>ETAPA {itemCopy.number}</small><strong>{itemCopy.title}</strong><p>{itemCopy.benefit}</p></div>{active && <b>ACTUAL</b>}</li>; })}</ol>
+      {editing && <form className="adoption-decision-form" onSubmit={save}><div className="form-grid"><label>Nueva etapa<select value={stage} onChange={(event) => setStage(event.target.value as TechnologyAdoptionStage)}>{allowedStages.map((item) => <option value={item} key={item}>Etapa {adoptionStageCopy[item].number} · {adoptionStageCopy[item].title}</option>)}</select></label><label>Próxima revisión<input type="datetime-local" value={reviewAt} onChange={(event) => setReviewAt(event.target.value)} min={localDateTimeFromNow(1)} /></label><label className="full">Fundamento de la decisión<textarea value={note} onChange={(event) => setNote(event.target.value)} minLength={8} maxLength={500} required placeholder="Ej. El equipo supera 90 % de cargas identificadas durante el último mes." /></label></div><div className="form-note warning"><span>!</span>El cambio afectará sólo nuevas autorizaciones. Una carga ya iniciada conserva la política con que fue aprobada.</div>{error && <div className="auth-error" role="alert"><span>!</span>{error}</div>}<div className="modal-actions"><button type="button" className="secondary-button" onClick={() => setEditing(false)}>Cancelar</button><button className="primary-button" disabled={saving || note.trim().length < 8}>{saving ? "Guardando…" : "Registrar decisión"}</button></div></form>}
+    </section>
+
+    <section className="adoption-audiences">
+      <article className="panel adoption-operator-card"><div><span className="eyebrow">Guía en terreno</span><h2>Una secuencia clara en el surtidor</h2><p>{current === "assisted" ? "Practica el flujo completo sin convertir el aprendizaje en una barrera para la faena." : current === "rfid_only" ? "Tu tag identifica la carga; cada uso del MIM agrega el equipo a la trazabilidad." : "La confirmación asegura que operador y máquina están autorizados antes de abastecer."}</p></div><ol>{operatorSteps.map((step, index) => <li key={step}><span>{index + 1}</span><p>{step}</p></li>)}</ol></article>
+      <article className="panel adoption-manager-card"><div><span className="eyebrow">Progreso de la etapa</span><h2>{dashboard.recommendation.title}</h2><p>{dashboard.recommendation.detail}</p></div><div className={`adoption-readiness ${dashboard.recommendation.ready ? "ready" : "learning"}`}><span>{dashboard.recommendation.ready ? "✓" : "↗"}</span><strong>{dashboard.recommendation.ready ? "Preparado para revisión" : "Hábito en formación"}</strong></div><dl><div><dt>Revisión acordada</dt><dd>{dashboard.settings.reviewAt ? formatAlertDate(dashboard.settings.reviewAt) : "Por definir"}</dd></div><div><dt>Última decisión</dt><dd>{dashboard.settings.updatedByName ?? "Inicio del programa"}</dd></div></dl></article>
+    </section>
+
+    {current === "assisted" && canSchedule && <ManualModePanel edge={edge} online={online} onRefresh={onRefresh} variant="adoption" />}
+
+    <section className="panel adoption-management"><div className="adoption-section-heading"><div><span className="eyebrow">Indicadores desde el inicio</span><h2>Valor capturado por la nueva forma de trabajar</h2><p>Los porcentajes usan litros efectivamente despachados, no clics ni aperturas de pantalla.</p></div><strong>{formatCompactLiters(dashboard.metrics.totalLiters)}<small>base observada</small></strong></div><div className="adoption-metrics"><AdoptionMetric label="Identidad RFID" value={dashboard.metrics.rfidCoverage} detail={`${dashboard.metrics.identifiedLoads} cargas · ${formatCompactLiters(dashboard.metrics.identifiedLiters)}`} tone="rfid" /><AdoptionMetric label="Trazabilidad completa" value={dashboard.metrics.fullCoverage} detail={`${dashboard.metrics.fullLoads} cargas · ${formatCompactLiters(dashboard.metrics.fullLiters)}`} tone="full" /><div className="adoption-assisted-metric"><span>SESIONES ASISTIDAS</span><strong>{dashboard.metrics.assistedLoads}</strong><p>{formatCompactLiters(dashboard.metrics.assistedLiters)} acompañados sin detener la operación</p></div></div>{dashboard.metrics.totalLoads === 0 && <div className="adoption-empty-data">Las próximas cargas comenzarán a construir la línea base de adopción del fundo.</div>}</section>
+
+    <section className="adoption-bottom-grid"><article className="panel adoption-capabilities"><span className="eyebrow">Potencial tecnológico</span><h2>Lo que cada etapa incorpora</h2><ul><li className={currentIndex >= 0 ? "active" : ""}><i>✓</i><span><strong>Continuidad operacional</strong><small>Aprendizaje acompañado y auditable.</small></span></li><li className={currentIndex >= 1 ? "active" : ""}><i>{currentIndex >= 1 ? "✓" : "2"}</i><span><strong>Identidad del operador</strong><small>Responsabilidad RFID en cada carga.</small></span></li><li className={currentIndex >= 2 ? "active" : ""}><i>{currentIndex >= 2 ? "✓" : "3"}</i><span><strong>Identidad de la máquina</strong><small>MIM, asociación y fundo verificados.</small></span></li></ul></article><article className="panel adoption-history"><span className="eyebrow">Gobierno y auditoría</span><h2>Decisiones de etapa</h2>{dashboard.history.length ? <ol>{dashboard.history.slice(0, 5).map((item) => <li key={item.id}><span className="adoption-history-dot" /><div><strong>{adoptionStageCopy[item.fromStage].short} → {adoptionStageCopy[item.toStage].short}</strong><p>{item.reason}</p><small>{item.actorName} · {formatAlertDate(item.occurredAt)}</small></div></li>)}</ol> : <p className="adoption-history-empty">Aún no hay cambios de etapa. La política inicial mantiene trazabilidad completa hasta que administración registre una decisión.</p>}</article></section>
+  </div>;
+}
+
+function AdoptionMetric({ label, value, detail, tone }: { label: string; value: number; detail: string; tone: "rfid" | "full" }) {
+  const bounded = Math.max(0, Math.min(100, value));
+  return <div className={`adoption-metric ${tone}`}><div className="adoption-progress-ring" style={{ "--adoption-progress": `${bounded * 3.6}deg` } as CSSProperties}><strong>{bounded.toLocaleString("es-CL", { maximumFractionDigits: 1 })}<small>%</small></strong></div><span><small>{label}</small><strong>{detail}</strong></span></div>;
+}
+
+function Sidebar({ view, open, edgeOnline, validatorConnected, alertCount, permissions, roleCode, adoptionActive, onNavigate, onClose }: { view: View; open: boolean; edgeOnline: boolean; validatorConnected: boolean; alertCount: number; permissions: Permission[]; roleCode: string; adoptionActive: boolean; onNavigate: (view: View) => void; onClose: () => void }) {
   const groups = [
     { id: "operate", label: "OPERACIÓN" },
     { id: "manage", label: "ADMINISTRACIÓN" },
@@ -868,11 +1108,11 @@ function Sidebar({ view, open, edgeOnline, validatorConnected, alertCount, permi
           {groups.map((group) => (
             <div className="nav-group" key={group.id}>
               <p>{group.label}</p>
-              {navItems.filter((item) => item.group === group.id && canOpenView(item.id, permissions)).map((item) => {
+              {navItems.filter((item) => item.group === group.id && (item.id !== "adoption" || adoptionActive) && canOpenView(item.id, permissions, roleCode)).map((item) => {
                 const active = view === item.id || (view === "machineMap" && item.id === "equipment");
                 return <button key={item.id} type="button" className={active ? "active" : ""} onClick={() => onNavigate(item.id)} aria-current={active ? "page" : undefined}>
                   <span className="nav-mark">{item.short}</span><span>{item.label}</span>
-                  {item.id === "alerts" && alertCount > 0 && <b>{alertCount}</b>}
+                  {item.id === "alerts" && alertCount > 0 && <b>{formatAlertBadge(alertCount)}</b>}
                 </button>;
               })}
             </div>
@@ -884,14 +1124,18 @@ function Sidebar({ view, open, edgeOnline, validatorConnected, alertCount, permi
   );
 }
 
-function canOpenView(view: View, permissions: Permission[]) {
-  if (view === "overview") return permissions.includes("view_dashboard");
+function canOpenView(view: View, permissions: Permission[], roleCode = "") {
+  if (view === "overview" || view === "adoption") return permissions.includes("view_dashboard");
   if (view === "transactions" || view === "fuelHistory") return permissions.includes("view_transactions");
   if (view === "operators" || view === "rfidCredentials") return permissions.includes("manage_operators");
   if (view === "equipment" || view === "machineMap") return permissions.includes("manage_equipment");
   if (view === "associations") return permissions.includes("manage_associations");
   if (view === "access") return permissions.includes("manage_users");
-  if (view === "system") return permissions.includes("manage_system");
+  if (view === "data") return true;
+  if (view === "system") {
+    return permissions.includes("manage_system")
+      || ["master", "administrator", "supervisor"].includes(roleCode);
+  }
   return true;
 }
 
@@ -949,19 +1193,36 @@ function databaseInstant(value: string) {
   return new Date(value.includes("T") ? value : `${value.replace(" ", "T")}Z`);
 }
 
-function Overview({ alerts, transactions, sensor, edge, edgeOnline, equipment, nowMs, canScanNetwork, networkScanState, onNetworkScan, onNavigate, onTransaction }: { alerts: AlertItem[]; transactions: Transaction[]; sensor: FuelHistoryResponse["sensor"] | null; edge: FuelHistoryResponse["edge"]; edgeOnline: boolean; equipment: Equipment[]; nowMs: number; canScanNetwork: boolean; networkScanState: NetworkScanState; onNetworkScan: () => void; onNavigate: (view: View) => void; onTransaction: (id: string) => void }) {
+function Overview({ alerts, transactions, sensor, edge, edgeOnline, equipment, adoption, nowMs, canScanNetwork, networkScanState, onNetworkScan, onNavigate, onTransaction }: { alerts: AlertItem[]; transactions: Transaction[]; sensor: FuelHistoryResponse["sensor"] | null; edge: FuelHistoryResponse["edge"]; edgeOnline: boolean; equipment: Equipment[]; adoption: TechnologyAdoptionDashboard | null; nowMs: number; canScanNetwork: boolean; networkScanState: NetworkScanState; onNetworkScan: () => void; onNavigate: (view: View) => void; onTransaction: (id: string) => void }) {
   const todayKey = new Date(nowMs).toDateString();
   const today = transactions.filter((item) => new Date(item.occurredAt).toDateString() === todayKey);
-  const todayLiters = today.reduce((total, item) => total + item.liters, 0);
+  const todayDispatches = today.filter((item) => item.status !== "Habilitación de bomba");
+  const todayEnablements = today.filter((item) => item.status === "Habilitación de bomba");
+  const todayLiters = todayDispatches.reduce((total, item) => total + item.liters, 0);
+  const todayEnablementLiters = todayEnablements.reduce((total, item) => total + item.liters, 0);
   const weeklyValues = Array.from({ length: 7 }, (_, offset) => {
     const day = new Date(nowMs); day.setHours(0, 0, 0, 0); day.setDate(day.getDate() - (6 - offset));
     const next = new Date(day); next.setDate(next.getDate() + 1);
-    return transactions.filter((item) => { const date = new Date(item.occurredAt); return date >= day && date < next; }).reduce((total, item) => total + item.liters, 0);
+    return transactions.filter((item) => { const date = new Date(item.occurredAt); return item.status !== "Habilitación de bomba" && date >= day && date < next; }).reduce((total, item) => total + item.liters, 0);
   });
   const weeklyTotal = weeklyValues.reduce((total, value) => total + value, 0);
   const weeklyMax = Math.max(1, ...weeklyValues);
+  const weeklyAxisMaximum = niceFuelAxisMaximum(weeklyMax);
+  const weeklyAxisTicks = fuelAxisTicks(weeklyAxisMaximum);
   const tankPercent = sensor ? Math.max(0, Math.min(100, sensor.currentLevel / sensor.capacityLiters * 100)) : 0;
-  const ready = edgeOnline && edge?.state === "locked" && edge.validatorOnline && edge.nfcReady && edge.k24Enabled && edge.k24Healthy;
+  const tankLiquidTop = 30 + (100 - tankPercent) * 1.08;
+  const controlHealthy = Boolean(edgeOnline && edge?.validatorOnline && edge.nfcReady && edge.k24Enabled && edge.k24Healthy);
+  const automaticReady = Boolean(controlHealthy && edge?.state === "locked");
+  const manualModeActive = Boolean(controlHealthy && edge?.state === "manual_mode" && edge.relayEnergized);
+  const operational = automaticReady || manualModeActive;
+  const operationalTitle = manualModeActive
+    ? "Modo manual activo"
+    : automaticReady ? "Disponible para una nueva carga" : "Estado operacional sin confirmar";
+  const operationalDetail = manualModeActive
+    ? "R0.1 permanece habilitado durante la ventana manual. Los tags permiten imputar cada consumo sin interrumpir la bomba."
+    : automaticReady
+      ? "Control local en espera. El operador puede presentar su credencial en el validador."
+      : "La aplicación espera un reporte reciente y saludable del controlador antes de mostrar disponibilidad.";
   const componentHealth = [
     ["PLC", edgeOnline], ["Validador", Boolean(edgeOnline && edge?.validatorOnline)],
     ["NFC", Boolean(edgeOnline && edge?.nfcReady)], ["K24", Boolean(edgeOnline && edge?.k24Enabled && edge?.k24Healthy)],
@@ -971,8 +1232,8 @@ function Overview({ alerts, transactions, sensor, edge, edgeOnline, equipment, n
     <div className="overview-grid">
       <section className="hero-status panel">
         <div className="hero-copy">
-          <div className="status-label"><span className={`ready-ring ${ready ? "" : "offline"}`}><i /></span><div><small>ESTADO DEL PUNTO</small><strong>{ready ? "Disponible para una nueva carga" : "Estado operacional sin confirmar"}</strong></div></div>
-          <p>{ready ? "Control local en espera. El operador puede presentar su credencial en el validador." : "La aplicación espera un reporte reciente y saludable del controlador antes de mostrar disponibilidad."}</p>
+          <div className="status-label"><span className={`ready-ring ${operational ? "" : "offline"}`}><i /></span><div><small>ESTADO DEL PUNTO</small><strong>{operationalTitle}</strong></div></div>
+          <p>{operationalDetail}</p>
           <div className={`validator-live-state ${edgeOnline && edge?.validatorOnline ? "online" : "offline"}`} role="status" aria-live="polite"><i /><div><small>CONECTIVIDAD DEL VALIDADOR · EN VIVO</small><strong>{edgeOnline && edge?.validatorOnline ? "Validador conectado" : "Validador no conectado"}</strong></div><span>Actualización cada 5 s</span></div>
           <div className="readiness-row">
             {componentHealth.map(([item, healthy]) => <span key={item}><i>{healthy ? "✓" : "·"}</i>{item}</span>)}
@@ -981,22 +1242,76 @@ function Overview({ alerts, transactions, sensor, edge, edgeOnline, equipment, n
           <div className="safety-note"><span>i</span><p><strong>Control seguro en el borde</strong>El dashboard observa la operación. La habilitación física pertenece exclusivamente al PLC.</p></div>
         </div>
         <div className="tank-card">
-          <div className="tank-gauge"><div className="tank-fill" style={{ height: `${tankPercent}%` }} /><div className="tank-value"><strong>{Math.round(tankPercent)}%</strong><span>{sensor ? formatCompactLiters(sensor.currentLevel) : "Sin lectura"}</span></div></div>
-          <div className="tank-meta"><span>Nivel medido</span><strong>{sensor ? `de ${formatCompactLiters(sensor.capacityLiters)}` : "OCIO pendiente"}</strong><small>{sensor?.latestReadingAt && !sensor.latestReadingAt.startsWith("1970") ? `OCIO · ${formatHistoryDate(sensor.latestReadingAt)}` : "Esperando primera lectura OCIO"}</small></div>
+          <div className="tank-gauge" role="img" aria-label={`Estanque de petróleo al ${Math.round(tankPercent)}%`}>
+            <svg className="tank-diagram" viewBox="0 0 166 160" aria-hidden="true">
+              <defs>
+                <linearGradient id="tank-liquid-gradient" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0" stopColor="#c8b5dc" />
+                  <stop offset=".42" stopColor="#a987c7" />
+                  <stop offset="1" stopColor="#76579f" />
+                </linearGradient>
+                <linearGradient id="tank-steel-gradient" x1="0" y1="0" x2="1" y2="0">
+                  <stop offset="0" stopColor="#eeeaf0" />
+                  <stop offset=".48" stopColor="#ffffff" />
+                  <stop offset="1" stopColor="#e5e0e8" />
+                </linearGradient>
+                <clipPath id="tank-vessel-clip">
+                  <path d="M18 30v102c0 10 21 15 48 15s48-5 48-15V30Z" />
+                </clipPath>
+              </defs>
+              <path className="tank-liquid" d={`M18 ${tankLiquidTop}h96v${147 - tankLiquidTop}H18Z`} clipPath="url(#tank-vessel-clip)" />
+              {tankPercent > 0 && <ellipse className="tank-liquid-surface" cx="66" cy={tankLiquidTop} rx="48" ry="14" clipPath="url(#tank-vessel-clip)" />}
+              <path className="tank-shell" d="M18 30v102M114 30v102" />
+              <ellipse className="tank-shell tank-lid" cx="66" cy="30" rx="48" ry="14" />
+              <ellipse className="tank-shell tank-base" cx="66" cy="132" rx="48" ry="15" />
+              <path className="tank-industrial-band" d="M18 108c0 10 96 10 96 0" />
+              <path className="tank-scale-track" d="M124 30v108" />
+              <path className="tank-scale" d="M120 30h8m-8 27h6m-6 27h8m-8 27h6m-6 27h8" />
+              <text className="tank-scale-label" x="133" y="33">100%</text>
+              <text className="tank-scale-label" x="133" y="60">75%</text>
+              <text className="tank-scale-label" x="133" y="87">50%</text>
+              <text className="tank-scale-label" x="133" y="114">25%</text>
+              <text className="tank-scale-label" x="133" y="141">0%</text>
+              <path className="tank-level-marker" d={`M117 ${tankLiquidTop}h13`} />
+              <circle className="tank-level-marker-dot" cx="130" cy={tankLiquidTop} r="2.5" />
+              <path className="tank-front-edge-underlay" d="M18 30c0 18 96 18 96 0M18 132c0 19 96 19 96 0" />
+              <path className="tank-front-edge" d="M18 30c0 18 96 18 96 0M18 132c0 19 96 19 96 0" />
+            </svg>
+          </div>
+          <div className="tank-meta">
+            <span>Nivel medido</span>
+            <strong>{Math.round(tankPercent)}%</strong>
+            <div className="tank-volume"><b>{sensor ? formatCompactLiters(sensor.currentLevel) : "Sin lectura"}</b><em>{sensor ? `de ${formatCompactLiters(sensor.capacityLiters)}` : "OCIO pendiente"}</em></div>
+            <small>{sensor?.latestReadingAt && !sensor.latestReadingAt.startsWith("1970") ? `OCIO · ${formatHistoryDate(sensor.latestReadingAt)}` : "Esperando primera lectura OCIO"}</small>
+          </div>
         </div>
       </section>
 
       <section className="metrics-grid" aria-label="Indicadores del día">
         <Metric label="Litros despachados hoy" value={formatLiters(todayLiters)} delta="Registrados por el PLC" tone="blue" />
-        <Metric label="Cargas completadas" value={String(today.filter((item) => item.status === "Completada").length)} delta={`${today.length} movimientos hoy`} tone="violet" />
-        <Metric label="Promedio por carga" value={formatLiters(today.length ? todayLiters / today.length : 0)} delta="Calculado con las cargas de hoy" tone="sky" />
+        <Metric label="Cargas completadas" value={String(today.filter((item) => item.status === "Completada").length)} delta={`${todayDispatches.length} despachos hoy`} tone="violet" />
+        <Metric label="Habilitaciones de bomba" value={String(todayEnablements.length)} delta={`${formatLiters(todayEnablementLiters)} sin suministro posterior`} tone="sky" />
         <Metric label="Equipos habilitados" value={`${equipment.filter((item) => !item.archivedAt && item.active).length} / ${equipment.filter((item) => !item.archivedAt).length}`} delta="Registros vigentes" tone="ink" />
       </section>
 
+      {adoption && <section className={`panel adoption-overview-card stage-${adoption.settings.stage}`}>
+        <div className="adoption-overview-stage"><span>{adoptionStageCopy[adoption.settings.stage].number}</span><div><small>ADOPCIÓN TECNOLÓGICA · ETAPA ACTUAL</small><strong>{adoptionStageCopy[adoption.settings.stage].title}</strong></div></div>
+        <p>{adoption.settings.stage === "assisted" ? "El equipo está practicando RFID y MIM con acompañamiento, sin detener la faena." : adoption.settings.stage === "rfid_only" ? "Cada carga exige identidad RFID; el MIM suma trazabilidad completa cuando está disponible." : "El fundo ya opera con RFID, MIM y asociación como evidencia mínima."}</p>
+        <div className="adoption-overview-evidence"><span><small>RFID</small><strong>{adoption.metrics.rfidCoverage.toLocaleString("es-CL", { maximumFractionDigits: 1 })}%</strong></span><span><small>TRAZABILIDAD COMPLETA</small><strong>{adoption.metrics.fullCoverage.toLocaleString("es-CL", { maximumFractionDigits: 1 })}%</strong></span></div>
+        <button className="secondary-button compact" type="button" onClick={() => onNavigate("adoption")}>Ver ruta y próximos pasos →</button>
+      </section>}
+
       <section className="panel volume-panel">
         <div className="panel-heading"><div><span className="eyebrow">Últimos 7 días</span><h2>Volumen despachado</h2></div><strong>{formatCompactLiters(weeklyTotal)} <small>total semanal</small></strong></div>
-        <div className="bar-chart" aria-label="Gráfico de volumen semanal">
-          {weeklyValues.map((value, index) => <div className="bar-column" key={index}><div className="bar-track"><span style={{ height: `${value / weeklyMax * 100}%` }} /></div><small>{new Intl.DateTimeFormat("es-CL", { weekday: "short" }).format(new Date(nowMs - (6 - index) * 86400000)).replace(".", "")}</small></div>)}
+        <div className="overview-chart" aria-label="Gráfico de volumen semanal con escala en litros">
+          <div className="overview-chart-guides" aria-hidden="true">{weeklyAxisTicks.map((tick, index) => <span key={`${tick}-${index}`} />)}</div>
+          <div className="overview-chart-axis" aria-label="Escala vertical de volumen despachado">{weeklyAxisTicks.map((tick, index) => <span key={`${tick}-${index}`}>{tick.toLocaleString("es-CL")} L</span>)}</div>
+          <div className="bar-chart">
+            {weeklyValues.map((value, index) => {
+              const dayLabel = new Intl.DateTimeFormat("es-CL", { weekday: "short" }).format(new Date(nowMs - (6 - index) * 86400000)).replace(".", "");
+              return <div className="bar-column" key={index}><div className="bar-track"><button type="button" className={`weekly-bar chart-tooltip-target ${value === 0 ? "zero" : ""}`} data-tooltip={`${formatLiters(value)} despachados`} aria-label={`${dayLabel}: ${formatLiters(value)} despachados`} style={{ height: `${value ? Math.max(3, value / weeklyAxisMaximum * 100) : 0}%` }} /></div><small>{dayLabel}</small></div>;
+            })}
+          </div>
         </div>
       </section>
 
@@ -1008,7 +1323,7 @@ function Overview({ alerts, transactions, sensor, edge, edgeOnline, equipment, n
       </section>
 
       <section className="panel recent-panel">
-        <div className="panel-heading"><div><span className="eyebrow">Trazabilidad</span><h2>Cargas recientes</h2></div><button className="text-button" onClick={() => onNavigate("transactions")}>Ver historial →</button></div>
+        <div className="panel-heading"><div><span className="eyebrow">Trazabilidad</span><h2>Movimientos recientes</h2></div><button className="text-button" onClick={() => onNavigate("transactions")}>Ver historial →</button></div>
         <TransactionTable items={transactions.slice(0, 4)} onOpen={onTransaction} compact />
       </section>
     </div>
@@ -1027,13 +1342,14 @@ function Transactions({ search, status, items, allItems, onSearch, onStatus, onE
   const filters: { label: string; value: TransactionStatusFilter }[] = [
     { label: "Todas", value: "Todas" },
     { label: "Completadas", value: "Completada" },
+    { label: "Habilitaciones", value: "Habilitación de bomba" },
     { label: "Excepcionales", value: "Excepcional" },
     { label: "Interrumpidas", value: "Interrumpida" },
   ];
   return (
     <div className="stack">
       <section className="filter-panel panel"><SearchBar value={search} onChange={onSearch} placeholder="Buscar por ID, operador o equipo" /><div className="filter-pills" aria-label="Filtrar cargas por estado">{filters.map((filter) => <button type="button" key={filter.value} className={status === filter.value ? "active" : ""} aria-pressed={status === filter.value} onClick={() => onStatus(filter.value)}>{filter.label}<span>{filter.value === "Todas" ? allItems.length : allItems.filter((item) => item.status === filter.value).length}</span></button>)}</div><button className="mobile-export secondary-button" onClick={onExport} disabled={items.length === 0}>↓ Exportar</button></section>
-      <section className="panel table-panel"><div className="table-summary"><span><strong>{items.length}</strong> {items.length === 1 ? "carga encontrada" : "cargas encontradas"}</span><small>Datos conservados localmente por 1 año</small></div><TransactionTable items={items} onOpen={onOpen} emptyDetail={search || status !== "Todas" ? "Ajusta la búsqueda o selecciona otro estado." : "Todavía no existen cargas registradas."} /></section>
+      <section className="panel table-panel"><div className="table-summary"><span><strong>{items.length}</strong> {items.length === 1 ? "movimiento encontrado" : "movimientos encontrados"}</span><small>Datos conservados localmente por 1 año</small></div><TransactionTable items={items} onOpen={onOpen} emptyDetail={search || status !== "Todas" ? "Ajusta la búsqueda o selecciona otro estado." : "Todavía no existen movimientos registrados."} /></section>
     </div>
   );
 }
@@ -1041,16 +1357,19 @@ function Transactions({ search, status, items, allItems, onSearch, onStatus, onE
 type HistoryScope = "week" | "month" | "year" | "custom";
 type HistoryGranularity = "day" | "week" | "month" | "year";
 
-function FuelHistoryView() {
+function FuelHistoryView({ canManageReceipts }: { canManageReceipts: boolean }) {
   const initialRange = useMemo(() => historyRange("month"), []);
   const [scope, setScope] = useState<HistoryScope>("month");
   const [granularity, setGranularity] = useState<HistoryGranularity>("week");
-  const [movementFilter, setMovementFilter] = useState<"all" | FuelMovement["type"]>("all");
+  const [movementFilter, setMovementFilter] = useState<"all" | FuelMovement["type"] | "pump_enablement">("all");
   const [from, setFrom] = useState(initialRange.from);
   const [to, setTo] = useState(initialRange.to);
   const [data, setData] = useState<FuelHistoryResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
+  const [refreshRevision, setRefreshRevision] = useState(0);
+  const [receiptDialog, setReceiptDialog] = useState<{ type: "manual" } | { type: "review"; movement: FuelMovement } | null>(null);
   const ledgerRef = useRef<HTMLElement>(null);
 
   useEffect(() => {
@@ -1082,13 +1401,16 @@ function FuelHistoryView() {
     const frame = window.requestAnimationFrame(refresh);
     const timer = window.setInterval(refresh, 5000);
     return () => { window.cancelAnimationFrame(frame); window.clearInterval(timer); controller.abort(); };
-  }, [from, to]);
+  }, [from, to, refreshRevision]);
 
   const points = useMemo(() => aggregateFuelMovements(data?.movements ?? [], granularity), [data, granularity]);
-  const shownMovements = useMemo(() => (data?.movements ?? []).filter((movement) => movementFilter === "all" || movement.type === movementFilter), [data, movementFilter]);
+  const shownMovements = useMemo(() => (data?.movements ?? []).filter((movement) => movementFilter === "all" || (movementFilter === "pump_enablement" ? movement.classification === "pump_enablement" : movement.type === movementFilter && movement.classification === "standard")), [data, movementFilter]);
   const maxFlow = Math.max(1, ...points.flatMap((point) => [point.received, point.dispatched]));
   const axisMaximum = niceFuelAxisMaximum(maxFlow);
-  const axisTicks = [1, .75, .5, .25, 0].map((ratio) => Math.round(axisMaximum * ratio));
+  const axisTicks = fuelAxisTicks(axisMaximum);
+  const tankCapacity = Math.max(1, data?.sensor.capacityLiters ?? Math.max(...points.map((point) => point.closingLevel), 1));
+  const tankAxisTicks = fuelAxisTicks(tankCapacity);
+  const levelLinePoints = points.map((point, index) => `${(index + .5) * 100},${100 - fuelLevelPercent(point.closingLevel, tankCapacity)}`).join(" ");
   const applyScope = (next: HistoryScope) => {
     setScope(next);
     if (next === "custom") return;
@@ -1099,11 +1421,12 @@ function FuelHistoryView() {
   };
   const exportHistory = () => {
     if (!data) return;
-    const header = "Fecha,Tipo,Litros,Nivel inicial,Nivel final,Origen,Referencia,Detección";
+    const header = "Fecha,Tipo,Litros conciliados,Litros detectados,Nivel inicial,Nivel final,Origen,Referencia interna,Referencia documental,Detección,Conciliación,Revisado por,Motivo";
     const rows = data.movements.map((item) => [
-      item.occurredAt, item.type === "receipt" ? "Recepción" : "Despacho", item.liters.toFixed(1),
-      item.openingLevel.toFixed(1), item.closingLevel.toFixed(1), item.source, item.reference,
-      item.detectedAutomatically ? "Automática" : "Trazable",
+      item.occurredAt, item.classification === "pump_enablement" ? "Habilitación de bomba" : item.type === "receipt" ? "Recepción" : "Despacho", item.liters.toFixed(2),
+      item.originalLiters?.toFixed(3) ?? "", item.openingLevel.toFixed(1), item.closingLevel.toFixed(1), item.source, item.reference,
+      item.documentReference ?? "", item.detectedAutomatically ? "Automática" : "Manual / trazable",
+      receiptReviewCopy(item.reviewStatus), item.reviewedByName ?? "", item.reviewNote ?? "",
     ].map(csvCell).join(","));
     const url = URL.createObjectURL(new Blob([`\uFEFF${[header, ...rows].join("\n")}`], { type: "text/csv;charset=utf-8" }));
     const link = document.createElement("a");
@@ -1112,11 +1435,19 @@ function FuelHistoryView() {
     link.click();
     URL.revokeObjectURL(url);
   };
-  const receivedCount = data?.movements.filter((item) => item.type === "receipt").length ?? 0;
+  const receivedCount = data?.movements.filter((item) => item.type === "receipt" && isReconciledReceipt(item)).length ?? 0;
+  const receiptMovementCount = data?.movements.filter((item) => item.type === "receipt").length ?? 0;
   const dispatchedCount = data?.movements.filter((item) => item.type === "dispatch").length ?? 0;
+  const pumpEnablementCount = data?.movements.filter((item) => item.classification === "pump_enablement").length ?? 0;
+  const classicDispatchCount = dispatchedCount - pumpEnablementCount;
   const openLedger = (type: FuelMovement["type"]) => {
     setMovementFilter(type);
     window.requestAnimationFrame(() => ledgerRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }));
+  };
+  const refreshAfterReceiptChange = (message: string) => {
+    setNotice(message);
+    setReceiptDialog(null);
+    setRefreshRevision((value) => value + 1);
   };
 
   return <div className="fuel-history-stack">
@@ -1133,12 +1464,22 @@ function FuelHistoryView() {
         <label>Hasta<input type="date" value={to} min={from} onChange={(event) => { setScope("custom"); setTo(event.target.value); }} /></label>
       </div>
       <button className="secondary-button history-export" type="button" onClick={exportHistory} disabled={!data || data.movements.length === 0}>↓ Exportar CSV</button>
+      {canManageReceipts && <button className="primary-button history-manual-receipt" type="button" onClick={() => { setNotice(""); setReceiptDialog({ type: "manual" }); }}>＋ Registrar recepción</button>}
     </section>
 
     {error && <div className="auth-error" role="alert"><span>!</span>{error}</div>}
+    {notice && <div className="access-notice" role="status"><span>✓</span>{notice}</div>}
+    {(data?.pendingReceipts.length ?? 0) > 0 && <section className="panel receipt-review-queue" aria-label="Recepciones pendientes de revisión">
+      <div className="receipt-review-head"><div><span className="eyebrow">CONCILIACIÓN PENDIENTE</span><h2>{data!.pendingReceipts.length} {data!.pendingReceipts.length === 1 ? "detección requiere" : "detecciones requieren"} revisión</h2><p>El sensor confirmó una subida sostenida. Estos volúmenes no se suman al inventario conciliado hasta que una persona los apruebe.</p></div><span className="receipt-review-counter">{data!.pendingReceipts.length}</span></div>
+      <div className="receipt-review-grid">{data!.pendingReceipts.map((item) => <article className="receipt-review-card" key={item.id}>
+        <div className="receipt-review-card-head"><span className="movement-icon">↙</span><div><strong>{formatLiters(item.originalLiters ?? item.liters)} detectados</strong><time>{formatHistoryDate(item.occurredAt)}</time></div><span className="automatic-tag">{Math.round(item.confidence * 100)}% confianza</span></div>
+        <div className="receipt-evidence"><span><small>Nivel OCIO</small><strong>{formatCompactLiters(item.openingLevel)} → {formatCompactLiters(item.closingLevel)}</strong></span><span><small>Referencia</small><strong>{item.reference}</strong></span></div>
+        {canManageReceipts ? <button className="primary-button" type="button" onClick={() => { setNotice(""); setReceiptDialog({ type: "review", movement: item }); }}>Revisar recepción</button> : <p className="receipt-review-readonly">Un supervisor o administrador debe revisar esta detección.</p>}
+      </article>)}</div>
+    </section>}
     <section className="history-kpis" aria-label="Resumen del período">
       <article className="history-kpi received"><span className="history-kpi-icon">↙</span><div><small>Combustible recibido</small><strong>{formatLiters(data?.summary.receivedLiters)}</strong><span>{receivedCount} {receivedCount === 1 ? "recepción" : "recepciones"}</span></div></article>
-      <article className="history-kpi dispatched"><span className="history-kpi-icon">↗</span><div><small>Total despachado</small><strong>{formatLiters(data?.summary.dispatchedLiters)}</strong><span>{dispatchedCount} movimientos trazables</span></div></article>
+      <article className="history-kpi dispatched"><span className="history-kpi-icon">↗</span><div><small>Total despachado</small><strong>{formatLiters(data?.summary.dispatchedLiters)}</strong><span>{classicDispatchCount} despachos · {pumpEnablementCount} habilitaciones ({formatLiters(data?.summary.pumpEnablementLiters)})</span></div></article>
       <article className="history-kpi balance"><span className="history-kpi-icon">±</span><div><small>Balance del período</small><strong>{data ? `${data.summary.netLiters >= 0 ? "+" : ""}${formatLiters(data.summary.netLiters)}` : "—"}</strong><span>Entradas menos despachos</span></div></article>
       <article className="history-kpi level"><div className="mini-tank"><span style={{ height: `${data ? Math.min(100, data.sensor.currentLevel / data.sensor.capacityLiters * 100) : 0}%` }} /></div><div><small>Nivel actual estimado</small><strong>{formatLiters(data?.sensor.currentLevel)}</strong><span>{data ? `${Math.round(data.sensor.currentLevel / data.sensor.capacityLiters * 100)}% de ${formatLiters(data.sensor.capacityLiters)}` : "Consultando sensor"}</span></div></article>
     </section>
@@ -1149,13 +1490,21 @@ function FuelHistoryView() {
         <div className="chart-controls"><span>Agrupar por</span><div className="segmented-control compact">{([['day', 'Día'], ['week', 'Semana'], ['month', 'Mes'], ['year', 'Año']] as const).map(([value, label]) => <button type="button" key={value} className={granularity === value ? "active" : ""} aria-pressed={granularity === value} onClick={() => setGranularity(value)}>{label}</button>)}</div></div>
       </div>
       <div className="history-chart-legend"><span><i className="receipt" />Recepciones</span><span><i className="dispatch" />Despachos</span><span><i className="level" />Nivel del estanque</span></div>
-      {loading ? <div className="history-loading" role="status">Reconstruyendo el histórico local…</div> : points.length === 0 ? <EmptyState title="Sin movimientos en este período" detail="Amplía el rango de fechas para revisar actividad anterior." /> : <div className="history-chart-scroll"><div className="fuel-history-chart" style={{ minWidth: `${Math.max(640, points.length * 82)}px` }}>
-        <div className="chart-guides">{axisTicks.map((tick) => <span key={tick} />)}</div>
-        <div className="fuel-chart-axis" aria-label="Escala vertical en litros">{axisTicks.map((tick) => <span key={tick}>{tick.toLocaleString("es-CL")} L</span>)}</div>
-        {points.map((point) => <div className="fuel-chart-column" key={point.key} title={`${point.label}: ${formatLiters(point.received)} recibidos y ${formatLiters(point.dispatched)} despachados`}>
-          <div className="fuel-bars"><button type="button" className="received-bar" disabled={!point.received} aria-label={`Ver recepciones de ${point.label}: ${formatLiters(point.received)}`} onClick={() => openLedger("receipt")} style={{ height: `${point.received ? Math.max(5, point.received / axisMaximum * 100) : 0}%` }} /><button type="button" className="dispatched-bar" disabled={!point.dispatched} aria-label={`Ver despachos de ${point.label}: ${formatLiters(point.dispatched)}`} onClick={() => openLedger("dispatch")} style={{ height: `${point.dispatched ? Math.max(5, point.dispatched / axisMaximum * 100) : 0}%` }} /><i className="inventory-level-dot" style={{ bottom: `${Math.min(96, Math.max(2, point.closingLevel / (data?.sensor.capacityLiters ?? 2500) * 100))}%` }} /></div>
-          <strong>{point.label}</strong><small>{formatCompactLiters(point.received + point.dispatched)}</small>
-        </div>)}
+      {loading ? <div className="history-loading" role="status">Reconstruyendo el histórico local…</div> : points.length === 0 ? <EmptyState title="Sin movimientos en este período" detail="Amplía el rango de fechas para revisar actividad anterior." /> : <div className="history-chart-scroll"><div className="fuel-history-chart" style={{ minWidth: `${Math.max(720, points.length * 82 + 140)}px` }}>
+        <div className="chart-guides">{axisTicks.map((tick, index) => <span key={`${tick}-${index}`} />)}</div>
+        <div className="fuel-chart-axis fuel-chart-axis-left" data-axis-label="MOVIMIENTOS" aria-label="Escala vertical en litros para recepciones y despachos">{axisTicks.map((tick, index) => <span key={`${tick}-${index}`}>{tick.toLocaleString("es-CL")} L</span>)}</div>
+        <div className="fuel-chart-axis fuel-chart-axis-right" data-axis-label="NIVEL" aria-label="Escala derecha del nivel del estanque en litros">{tankAxisTicks.map((tick, index) => <span key={`${tick}-${index}`}>{tick.toLocaleString("es-CL")} L</span>)}</div>
+        <div className="fuel-chart-plot" style={{ gridTemplateColumns: `repeat(${points.length}, minmax(62px, 1fr))` }}>
+          {points.length > 1 && <svg className="inventory-level-line" viewBox={`0 0 ${points.length * 100} 100`} preserveAspectRatio="none" aria-hidden="true"><polyline points={levelLinePoints} vectorEffect="non-scaling-stroke" /></svg>}
+          {points.map((point) => <div className="fuel-chart-column" key={point.key}>
+            <div className="fuel-bars">
+              <button type="button" className="received-bar chart-tooltip-target" disabled={!point.received} data-tooltip={`${formatLiters(point.received)} recibidos`} aria-label={`Ver recepciones de ${point.label}: ${formatLiters(point.received)}`} onClick={() => openLedger("receipt")} style={{ height: `${point.received ? Math.max(3, point.received / axisMaximum * 100) : 0}%` }} />
+              <button type="button" className="dispatched-bar chart-tooltip-target" disabled={!point.dispatched} data-tooltip={`${formatLiters(point.dispatched)} despachados`} aria-label={`Ver despachos de ${point.label}: ${formatLiters(point.dispatched)}`} onClick={() => openLedger("dispatch")} style={{ height: `${point.dispatched ? Math.max(3, point.dispatched / axisMaximum * 100) : 0}%` }} />
+              <button type="button" className="inventory-level-dot chart-tooltip-target" data-tooltip={`Nivel: ${formatLiters(point.closingLevel)}`} aria-label={`${point.label}, nivel del estanque: ${formatLiters(point.closingLevel)}`} style={{ bottom: `${fuelLevelPercent(point.closingLevel, tankCapacity)}%` }} />
+            </div>
+            <strong>{point.label}</strong><small>{formatCompactLiters(point.received + point.dispatched)} mov.</small>
+          </div>)}
+        </div>
       </div></div>}
     </section>
 
@@ -1164,20 +1513,145 @@ function FuelHistoryView() {
         <div><span className="eyebrow">Registro auditable</span><h2>Movimientos del período</h2><p>Cada recepción y despacho conserva su origen, referencia y nivel antes y después.</p></div>
         <div className="movement-filters" aria-label="Filtrar movimientos">
           <button className={movementFilter === "all" ? "active" : ""} aria-pressed={movementFilter === "all"} onClick={() => setMovementFilter("all")}>Todos <span>{data?.movements.length ?? 0}</span></button>
-          <button className={movementFilter === "receipt" ? "active" : ""} aria-pressed={movementFilter === "receipt"} onClick={() => setMovementFilter("receipt")}>Recepciones <span>{receivedCount}</span></button>
-          <button className={movementFilter === "dispatch" ? "active" : ""} aria-pressed={movementFilter === "dispatch"} onClick={() => setMovementFilter("dispatch")}>Despachos <span>{dispatchedCount}</span></button>
+          <button className={movementFilter === "receipt" ? "active" : ""} aria-pressed={movementFilter === "receipt"} onClick={() => setMovementFilter("receipt")}>Recepciones <span>{receiptMovementCount}</span></button>
+          <button className={movementFilter === "dispatch" ? "active" : ""} aria-pressed={movementFilter === "dispatch"} onClick={() => setMovementFilter("dispatch")}>Despachos <span>{classicDispatchCount}</span></button>
+          <button className={movementFilter === "pump_enablement" ? "active" : ""} aria-pressed={movementFilter === "pump_enablement"} onClick={() => setMovementFilter("pump_enablement")}>Habilitaciones <span>{pumpEnablementCount}</span></button>
         </div>
       </div>
       <div className="fuel-ledger-columns" aria-hidden="true"><span>Movimiento</span><span>Volumen</span><span>Nivel del estanque</span><span>Origen y referencia</span></div>
-      <div className="fuel-ledger-list">{shownMovements.map((item) => <article className={`fuel-ledger-row ${item.type}`} key={item.id}>
-        <div className="movement-main"><span className="movement-icon">{item.type === "receipt" ? "↙" : "↗"}</span><div><strong>{item.type === "receipt" ? "Recepción de combustible" : "Despacho de combustible"}</strong><time>{formatHistoryDate(item.occurredAt)}</time>{item.detectedAutomatically && <span className="automatic-tag">Detección automática · {Math.round(item.confidence * 100)}%</span>}</div></div>
+      <div className="fuel-ledger-list">{shownMovements.map((item) => <article className={`fuel-ledger-row ${item.classification === "pump_enablement" ? "pump-enablement" : item.type} review-${item.reviewStatus}`} key={item.id}>
+        <div className="movement-main"><span className="movement-icon">{item.classification === "pump_enablement" ? "◉" : item.type === "receipt" ? "↙" : "↗"}</span><div><strong>{item.classification === "pump_enablement" ? "Habilitación de bomba" : item.type === "receipt" ? "Recepción de combustible" : "Despacho de combustible"}</strong><time>{formatHistoryDate(item.occurredAt)}</time>{item.detectedAutomatically && <span className="automatic-tag">Detección automática · {Math.round(item.confidence * 100)}%</span>}{item.type === "receipt" && <span className={`receipt-review-badge ${item.reviewStatus}`}>{receiptReviewCopy(item.reviewStatus)}</span>}</div></div>
         <strong className="movement-liters">{item.type === "receipt" ? "+" : "−"}{formatLiters(item.liters)}</strong>
         <div className="level-transition"><span>{formatCompactLiters(item.openingLevel)}</span><i>→</i><strong>{formatCompactLiters(item.closingLevel)}</strong></div>
-        <div className="movement-source"><strong>{item.source}</strong><span>{item.reference}</span><small>{item.detail}</small></div>
+        <div className="movement-source"><strong>{item.source}</strong><span>{item.documentReference ?? item.reference}</span><small>{item.reviewStatus === "corrected" && item.originalLiters != null ? `Sensor: ${formatLiters(item.originalLiters)} · ` : ""}{item.reviewNote ?? item.detail}</small>{item.reviewedByName && <small>Revisado por {item.reviewedByName}{item.reviewedAt ? ` · ${formatHistoryDate(item.reviewedAt)}` : ""}</small>}{canManageReceipts && item.type === "receipt" && item.reviewStatus !== "rejected" && <button className="text-button receipt-adjust-button" type="button" onClick={() => setReceiptDialog({ type: "review", movement: item })}>{item.reviewStatus === "pending" ? "Revisar" : "Ajustar conciliación"}</button>}</div>
       </article>)}</div>
       {!loading && shownMovements.length === 0 && <EmptyState title="No hay movimientos para este filtro" detail="Selecciona otro tipo de movimiento o amplía el período." />}
     </section>
+    {receiptDialog?.type === "review" && <ReceiptReviewDialog movement={receiptDialog.movement} onClose={() => setReceiptDialog(null)} onSaved={(message) => refreshAfterReceiptChange(message)} />}
+    {receiptDialog?.type === "manual" && <ManualReceiptDialog onClose={() => setReceiptDialog(null)} onSaved={(message) => refreshAfterReceiptChange(message)} />}
   </div>;
+}
+
+function ReceiptReviewDialog({ movement, onClose, onSaved }: { movement: FuelMovement; onClose: () => void; onSaved: (message: string) => void }) {
+  const [liters, setLiters] = useState(String(movement.liters));
+  const [documentReference, setDocumentReference] = useState(movement.documentReference ?? "");
+  const [note, setNote] = useState("");
+  const [error, setError] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const [requestId] = useState(clientRequestId);
+  const correctedLiters = Number(liters.replace(",", "."));
+  const isCorrection = Number.isFinite(correctedLiters) && Math.abs(correctedLiters - movement.liters) >= 0.0005;
+  const documentChanged = documentReference.trim() !== (movement.documentReference ?? "");
+  const alreadyReconciled = movement.reviewStatus === "approved" || movement.reviewStatus === "corrected";
+  const isAdjustment = isCorrection || documentChanged;
+
+  const save = async (action: "approve" | "correct" | "reject") => {
+    setError("");
+    if (action === "correct" && (!Number.isFinite(correctedLiters) || correctedLiters <= 0)) {
+      setError("Ingresa un volumen corregido válido."); return;
+    }
+    if ((action === "correct" || action === "reject") && note.trim().length < 10) {
+      setError("La corrección o rechazo requiere un motivo de al menos 10 caracteres."); return;
+    }
+    if (action === "correct" && documentReference.trim().length < 2) {
+      setError("Agrega la guía, factura u otra referencia que respalda la corrección."); return;
+    }
+    setSubmitting(true);
+    try {
+      const response = await fetch(`/api/fuel-history/receipts/${encodeURIComponent(movement.id)}/review`, {
+        method: "POST", credentials: "same-origin",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          requestId,
+          action,
+          liters: action === "correct" ? correctedLiters : undefined,
+          documentReference: documentReference.trim() || undefined,
+          note: note.trim() || undefined,
+        }),
+      });
+      const body = await response.json() as { error?: string };
+      if (!response.ok) throw new Error(body.error ?? "No fue posible revisar la recepción.");
+      onSaved(action === "reject" ? "Detección rechazada y conservada para auditoría."
+        : action === "correct" ? `Recepción corregida y conciliada en ${formatLiters(correctedLiters)}.`
+        : "Recepción confirmada e incorporada al inventario conciliado.");
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "No fue posible revisar la recepción.");
+      setSubmitting(false);
+    }
+  };
+
+  return <div className="modal-backdrop" role="presentation"><section className="modal receipt-review-modal" role="dialog" aria-modal="true" aria-label="Revisar recepción automática">
+    <button className="modal-close" type="button" onClick={onClose} aria-label="Cerrar">×</button>
+    <ModalIntro eyebrow="CONCILIACIÓN DE INVENTARIO" title={alreadyReconciled ? "Ajustar recepción conciliada" : "Revisar recepción automática"} detail={alreadyReconciled ? "Corrige el volumen o respaldo sin sobrescribir la evidencia ni las revisiones anteriores." : "Confirma la detección del OCIO o reemplaza el volumen por el documento del proveedor. La evidencia original no se modifica."} />
+    <div className="receipt-detection-summary"><span><small>Detectado por el sensor</small><strong>{formatLiters(movement.originalLiters ?? movement.liters)}</strong></span><span><small>Nivel observado</small><strong>{formatCompactLiters(movement.openingLevel)} → {formatCompactLiters(movement.closingLevel)}</strong></span><span><small>Fecha</small><strong>{formatHistoryDate(movement.occurredAt)}</strong></span></div>
+    <div className="form-grid receipt-review-form">
+      <label>Volumen a conciliar (L)<input type="number" min="0.001" max="2500" step="0.001" inputMode="decimal" value={liters} onChange={(event) => setLiters(event.target.value)} /></label>
+      <label>Guía, factura o referencia<input maxLength={120} value={documentReference} onChange={(event) => setDocumentReference(event.target.value)} placeholder="Ej. GD-45821" /></label>
+      <label className="full">Nota de revisión<textarea maxLength={500} value={note} onChange={(event) => setNote(event.target.value)} placeholder={isAdjustment ? "Explica la diferencia o cambio documental" : "Opcional al confirmar sin cambios"} /></label>
+    </div>
+    {isCorrection && <div className="receipt-correction-preview"><span>Volumen detectado <strong>{formatLiters(movement.originalLiters ?? movement.liters)}</strong></span><i>→</i><span>Volumen conciliado <strong>{formatLiters(correctedLiters)}</strong></span></div>}
+    {error && <div className="auth-error" role="alert"><span>!</span>{error}</div>}
+    <div className="modal-actions receipt-review-actions">{!alreadyReconciled && <button className="danger-button" type="button" disabled={submitting} onClick={() => void save("reject")}>Rechazar detección</button>}<button className="secondary-button" type="button" disabled={submitting} onClick={onClose}>Cancelar</button><button className="primary-button" type="button" disabled={submitting || alreadyReconciled && !isAdjustment} onClick={() => void save(alreadyReconciled || isCorrection ? "correct" : "approve")}>{submitting ? "Guardando…" : alreadyReconciled ? "Guardar ajuste" : isCorrection ? "Corregir y confirmar" : "Confirmar recepción"}</button></div>
+  </section></div>;
+}
+
+function ManualReceiptDialog({ onClose, onSaved }: { onClose: () => void; onSaved: (message: string) => void }) {
+  const [error, setError] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const [requestId] = useState(clientRequestId);
+  const submit = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    setError(""); setSubmitting(true);
+    const form = new FormData(event.currentTarget);
+    const occurredAt = new Date(String(form.get("occurredAt")));
+    const liters = Number(String(form.get("liters")).replace(",", "."));
+    try {
+      const response = await fetch("/api/fuel-history/receipts/manual", {
+        method: "POST", credentials: "same-origin", headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          requestId,
+          occurredAt: occurredAt.toISOString(),
+          liters,
+          documentReference: String(form.get("documentReference")),
+          source: String(form.get("source")),
+          note: String(form.get("note")),
+        }),
+      });
+      const body = await response.json() as { error?: string };
+      if (!response.ok) throw new Error(body.error ?? "No fue posible registrar la recepción.");
+      onSaved(`Recepción manual de ${formatLiters(liters)} incorporada al inventario conciliado.`);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "No fue posible registrar la recepción.");
+      setSubmitting(false);
+    }
+  };
+  return <div className="modal-backdrop" role="presentation"><section className="modal receipt-review-modal" role="dialog" aria-modal="true" aria-label="Registrar recepción manual">
+    <button className="modal-close" type="button" onClick={onClose} aria-label="Cerrar">×</button>
+    <form onSubmit={submit}><ModalIntro eyebrow="ENTRADA AUTORIZADA" title="Registrar recepción manual" detail="Úsalo cuando exista respaldo documental o la detección automática no haya capturado correctamente la entrega." />
+      <div className="form-grid receipt-review-form">
+        <label>Fecha y hora<input name="occurredAt" type="datetime-local" defaultValue={dateTimeLocalValue(new Date())} max={dateTimeLocalValue(new Date())} required /></label>
+        <label>Volumen recibido (L)<input name="liters" type="number" min="0.001" max="2500" step="0.001" inputMode="decimal" placeholder="1005,8" required /></label>
+        <label>Guía, factura o referencia<input name="documentReference" maxLength={120} placeholder="Ej. GD-45821" required /></label>
+        <label>Proveedor u origen<input name="source" maxLength={80} placeholder="Ej. Camión proveedor" /></label>
+        <label className="full">Nota de recepción<textarea name="note" minLength={5} maxLength={500} placeholder="Identifica el camión, proveedor o circunstancia de la entrega" required /></label>
+      </div>
+      <div className="form-note"><span>i</span>La recepción quedará confirmada por tu usuario. El nivel OCIO cercano se conservará como evidencia independiente.</div>
+      {error && <div className="auth-error" role="alert"><span>!</span>{error}</div>}
+      <div className="modal-actions"><button className="secondary-button" type="button" onClick={onClose} disabled={submitting}>Cancelar</button><button className="primary-button" disabled={submitting}>{submitting ? "Registrando…" : "Registrar y confirmar"}</button></div>
+    </form>
+  </section></div>;
+}
+
+function isReconciledReceipt(movement: FuelMovement) {
+  return movement.reviewStatus !== "pending" && movement.reviewStatus !== "rejected";
+}
+
+function receiptReviewCopy(status: FuelMovement["reviewStatus"]) {
+  if (status === "pending") return "Pendiente de revisión";
+  if (status === "approved") return "Confirmada";
+  if (status === "corrected") return "Corregida y confirmada";
+  if (status === "rejected") return "Rechazada";
+  return "No requiere revisión";
 }
 
 function historyRange(scope: Exclude<HistoryScope, "custom">) {
@@ -1191,7 +1665,8 @@ function historyRange(scope: Exclude<HistoryScope, "custom">) {
 
 function aggregateFuelMovements(movements: FuelMovement[], granularity: HistoryGranularity) {
   const buckets = new Map<string, { key: string; label: string; received: number; dispatched: number; closingLevel: number; lastAt: string }>();
-  [...movements].sort((a, b) => a.occurredAt.localeCompare(b.occurredAt)).forEach((movement) => {
+  [...movements].filter((movement) => movement.type !== "receipt" || isReconciledReceipt(movement))
+    .sort((a, b) => a.occurredAt.localeCompare(b.occurredAt)).forEach((movement) => {
     const date = new Date(movement.occurredAt);
     const bucketDate = new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()));
     if (granularity === "week") bucketDate.setUTCDate(bucketDate.getUTCDate() - ((bucketDate.getUTCDay() + 6) % 7));
@@ -1218,40 +1693,72 @@ function niceFuelAxisMaximum(value: number) {
   return rounded * magnitude;
 }
 
+function fuelAxisTicks(maximum: number) {
+  return [1, .75, .5, .25, 0].map((ratio) => maximum * ratio);
+}
+
+function fuelLevelPercent(level: number, capacity: number) {
+  return Math.min(98, Math.max(2, level / Math.max(1, capacity) * 100));
+}
+
 function dateInputValue(date: Date) {
   const year = date.getFullYear();
   return `${year}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+}
+function dateTimeLocalValue(date: Date) {
+  const local = new Date(date.getTime() - date.getTimezoneOffset() * 60_000);
+  return local.toISOString().slice(0, 16);
 }
 function formatLiters(value?: number) {
   if (value == null) return "—";
   const decimals = value !== 0 && Math.abs(value) < 1 ? 2 : 1;
   return `${value.toLocaleString("es-CL", { minimumFractionDigits: decimals, maximumFractionDigits: decimals })} L`;
 }
+function formatAlertBadge(count: number) { return count > 99 ? "99+" : String(count); }
 function formatCompactLiters(value: number) { return `${Math.round(value).toLocaleString("es-CL")} L`; }
 function formatHistoryDate(value: string) { return new Intl.DateTimeFormat("es-CL", { dateStyle: "medium", timeStyle: "short" }).format(new Date(value)); }
 function formatAlertDate(value: string) { const date = new Date(value); return Number.isNaN(date.getTime()) ? value : new Intl.DateTimeFormat("es-CL", { dateStyle: "medium", timeStyle: "short" }).format(date); }
 function movementToTransaction(item: FuelMovement): Transaction {
   const parts = item.detail.split(" · ").map((part) => part.trim()).filter(Boolean);
+  const pumpEnablement = item.classification === "pump_enablement";
   const unauthorized = /no autorizado|bypass/u.test(`${item.detail} ${item.source}`.toLocaleLowerCase("es-CL"));
   const exceptional = unauthorized || item.isMaster === true || (parts[1]?.toLocaleLowerCase("es-CL").includes("excepcional") ?? false);
   const closeReason = parts.find((part) => part.startsWith("Cierre:"))?.slice(7).trim() ?? "";
   const interrupted = /ble|fault|falla|timeout|persistence/u.test(closeReason.toLowerCase());
   const detailOperator = parts[0] && parts[0] !== item.operatorId ? parts[0] : "";
   const detailEquipment = parts[1] && parts[1] !== item.equipmentId ? parts[1] : "";
+  const adoptionEquipment = item.authorizationEvidence === "rfid_only"
+    ? "Equipo aún no validado · ruta de adopción"
+    : item.authorizationEvidence === "assisted" ? "Aprendizaje asistido" : "";
+  const adoptionValidation = item.authorizationEvidence === "full" ? "RFID + MIM + asociación"
+    : item.authorizationEvidence === "rfid_only" ? "RFID · operador identificado"
+      : item.authorizationEvidence === "assisted" ? "Sesión asistida · evidencia en aprendizaje"
+        : item.authorizationEvidence === "master" ? "Credencial maestra"
+          : item.authorizationEvidence === "unauthorized" ? "K24 · bypass detectado" : "NFC + BLE";
   return {
     id: item.reference || item.id,
     occurredAt: item.occurredAt,
     time: formatHistoryDate(item.occurredAt),
-    operator: unauthorized ? "Sin operador autorizado" : item.operatorName || detailOperator || "Operador no disponible",
-    equipment: unauthorized ? "Sin equipo autorizado" : exceptional ? "Carga de emergencia sin equipo validado" : item.equipmentName || detailEquipment || "Equipo no disponible",
+    operator: pumpEnablement ? item.operatorName || "Bomba habilitada" : unauthorized ? "Sin operador autorizado" : item.operatorName || detailOperator || "Operador no disponible",
+    equipment: pumpEnablement ? "Sin despacho posterior" : unauthorized ? "Sin equipo autorizado" : exceptional ? "Carga de emergencia sin equipo validado" : adoptionEquipment || item.equipmentName || detailEquipment || "Equipo no disponible",
     liters: item.liters,
     duration: "—",
-    status: exceptional ? "Excepcional" : interrupted ? "Interrumpida" : "Completada",
-    validation: unauthorized ? "K24 · bypass detectado" : exceptional ? "Credencial maestra" : interrupted ? "Cierre de seguridad" : "NFC + BLE",
+    status: pumpEnablement ? "Habilitación de bomba" : exceptional ? "Excepcional" : interrupted ? "Interrumpida" : "Completada",
+    validation: pumpEnablement ? "K24 · < 0,1 L sin flujo posterior" : interrupted ? "Cierre de seguridad" : adoptionValidation,
     source: item.source,
   };
 }
 function csvCell(value: unknown) { return `"${String(value).replaceAll('"', '""')}"`; }
+
+function clientRequestId() {
+  const webCrypto = typeof globalThis.crypto === "object" ? globalThis.crypto : null;
+  if (webCrypto && typeof webCrypto.randomUUID === "function") return webCrypto.randomUUID();
+  if (webCrypto && typeof webCrypto.getRandomValues === "function") {
+    const bytes = webCrypto.getRandomValues(new Uint8Array(16));
+    return `local-${Array.from(bytes, (value) => value.toString(16).padStart(2, "0")).join("")}`;
+  }
+  return `local-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 14)}`;
+}
 
 function TransactionTable({ items, onOpen, compact = false, emptyDetail = "Prueba con otro término de búsqueda." }: { items: Transaction[]; onOpen: (id: string) => void; compact?: boolean; emptyDetail?: string }) {
   return (
@@ -1273,7 +1780,8 @@ function TransactionTable({ items, onOpen, compact = false, emptyDetail = "Prueb
 }
 
 function StatusBadge({ status }: { status: Transaction["status"] }) {
-  return <span className={`status-badge ${status.toLowerCase()}`}><i />{status}</span>;
+  const statusClass = status === "Habilitación de bomba" ? "habilitacion-bomba" : status.toLowerCase();
+  return <span className={`status-badge ${statusClass}`}><i />{status}</span>;
 }
 
 function Operators({ operators, search, isProviderAdmin, onSearch, onToggle, onArchive, onDelete, onReplace, onCredentials }: { operators: Operator[]; search: string; isProviderAdmin: boolean; onSearch: (value: string) => void; onToggle: (item: Operator) => void; onArchive: (item: Operator, archived: boolean) => void; onDelete: (item: Operator) => void; onReplace: (item: Operator) => void; onCredentials: () => void }) {
@@ -1352,6 +1860,7 @@ const alertStatusCopy: Record<AlertStatus, string> = { pending: "Pendiente", in_
 function AlertsView({ alerts, canManage, onOpen }: { alerts: AlertItem[]; canManage: boolean; onOpen: (id: string) => void }) {
   const [priorityFilter, setPriorityFilter] = useState<AlertPriority | "all">("all");
   const [statusFilter, setStatusFilter] = useState<AlertStatus | "active" | "all">("active");
+  const [originFilter, setOriginFilter] = useState<"all" | "original" | "reopened">("all");
   const [sort, setSort] = useState<"priority" | "recent">("priority");
   const activeAlerts = alerts.filter((item) => item.status !== "resolved");
   const priorityCounts = Object.fromEntries(alertPriorities.map((priority) => [priority, activeAlerts.filter((item) => item.priority === priority).length])) as Record<AlertPriority, number>;
@@ -1359,7 +1868,8 @@ function AlertsView({ alerts, canManage, onOpen }: { alerts: AlertItem[]; canMan
   const visible = alerts.filter((item) => {
     const priorityMatches = priorityFilter === "all" || item.priority === priorityFilter;
     const statusMatches = statusFilter === "all" || (statusFilter === "active" ? item.status !== "resolved" : item.status === statusFilter);
-    return priorityMatches && statusMatches;
+    const originMatches = originFilter === "all" || (originFilter === "reopened" ? item.reopenNumber > 0 : item.reopenNumber === 0);
+    return priorityMatches && statusMatches && originMatches;
   }).sort((left, right) => sort === "priority"
     ? priorityRank[left.priority] - priorityRank[right.priority] || new Date(right.time).getTime() - new Date(left.time).getTime()
     : new Date(right.time).getTime() - new Date(left.time).getTime());
@@ -1371,11 +1881,11 @@ function AlertsView({ alerts, canManage, onOpen }: { alerts: AlertItem[]; canMan
     </section>
     <div className="alerts-layout">
       <section className="alert-feed panel">
-        <div className="alert-feed-head"><div><strong>{visible.length}</strong><span>resultados · {inProgress} tomando acción</span></div><div className="alert-feed-controls"><label>Estado<select aria-label="Filtrar alertas por estado" value={statusFilter} onChange={(event) => setStatusFilter(event.target.value as typeof statusFilter)}><option value="active">Abiertas</option><option value="all">Todas</option><option value="pending">Pendientes</option><option value="in_progress">Tomando acción</option><option value="resolved">Resueltas</option></select></label><label>Orden<select aria-label="Ordenar alertas" value={sort} onChange={(event) => setSort(event.target.value as typeof sort)}><option value="priority">Prioridad</option><option value="recent">Más recientes</option></select></label></div></div>
-        {visible.map((item) => <article className={`alert-row priority-${item.priority} ${item.status === "resolved" ? "acknowledged" : ""}`} key={item.id}><span className="alert-priority-mark" aria-hidden="true">{item.priority === "urgent" ? "!" : item.priority === "high" ? "↑" : item.priority === "medium" ? "•" : "↓"}</span><div><div className="alert-title-row"><strong>{item.title}</strong><span className={`priority-badge ${item.priority}`}>{alertPriorityCopy[item.priority]}</span><span className={`alert-status-badge ${item.status}`}>{alertStatusCopy[item.status]}</span></div><p>{item.detail}</p><div className="alert-row-meta"><time>{formatAlertDate(item.time)}</time>{canManage && <span>{item.comments?.length ?? 0} {(item.comments?.length ?? 0) === 1 ? "comentario" : "comentarios"}</span>}</div></div><button className="secondary-button small" onClick={() => onOpen(item.id)}>Abrir alerta</button></article>)}
+        <div className="alert-feed-head"><div><strong>{visible.length}</strong><span>resultados · {inProgress} tomando acción</span></div><div className="alert-feed-controls"><label>Estado<select aria-label="Filtrar alertas por estado" value={statusFilter} onChange={(event) => setStatusFilter(event.target.value as typeof statusFilter)}><option value="active">Abiertas</option><option value="all">Todas</option><option value="pending">Pendientes</option><option value="in_progress">Tomando acción</option><option value="resolved">Resueltas</option></select></label><label>Origen<select aria-label="Filtrar alertas por origen" value={originFilter} onChange={(event) => setOriginFilter(event.target.value as typeof originFilter)}><option value="all">Todas</option><option value="reopened">Reabiertas</option><option value="original">Originales</option></select></label><label>Orden<select aria-label="Ordenar alertas" value={sort} onChange={(event) => setSort(event.target.value as typeof sort)}><option value="priority">Prioridad</option><option value="recent">Más recientes</option></select></label></div></div>
+        {visible.map((item) => <article className={`alert-row priority-${item.priority} ${item.status === "resolved" ? "acknowledged" : ""} ${item.reopenNumber > 0 ? "reopened" : ""}`} key={item.id}><span className="alert-priority-mark" aria-hidden="true">{item.priority === "urgent" ? "!" : item.priority === "high" ? "↑" : item.priority === "medium" ? "•" : "↓"}</span><div><div className="alert-title-row"><strong>{item.title}</strong>{item.reopenNumber > 0 && <span className="alert-reopened-badge">Reabierta · ciclo {item.reopenNumber}</span>}<span className={`priority-badge ${item.priority}`}>{alertPriorityCopy[item.priority]}</span><span className={`alert-status-badge ${item.status}`}>{alertStatusCopy[item.status]}</span></div><p>{item.detail}</p><div className="alert-row-meta"><time>{formatAlertDate(item.time)}</time>{canManage && <span>{item.comments?.length ?? 0} {(item.comments?.length ?? 0) === 1 ? "registro" : "registros"}</span>}</div></div><button className="secondary-button small" onClick={() => onOpen(item.id)}>Abrir alerta</button></article>)}
         {visible.length === 0 && <EmptyState title={alerts.length === 0 ? "Sin alertas registradas" : "Sin alertas para estos filtros"} detail={alerts.length === 0 ? "Las fallas y advertencias del controlador edge aparecerán aquí." : "Cambia el estado o selecciona otra prioridad."} />}
       </section>
-      <aside className="panel alert-guide"><span className="eyebrow">Flujo de atención</span><h2>Seguimiento sin perder contexto</h2><p>Una alerta puede permanecer abierta mientras el encargado investiga o ejecuta una medida.</p><div className="status-mini-dashboard"><div><i className="pending" /><span><strong>{alerts.filter((item) => item.status === "pending").length}</strong>Pendientes</span></div><div><i className="in-progress" /><span><strong>{inProgress}</strong>Tomando acción</span></div><div><i className="resolved" /><span><strong>{alerts.filter((item) => item.status === "resolved").length}</strong>Resueltas</span></div></div><ol><li>Abre la alerta y define su criticidad.</li><li>Guarda comentarios mientras se trabaja.</li><li>Selecciona “Resuelta” sólo al terminar.</li></ol><small>{canManage ? "El historial completo es visible para administración y encargados autorizados." : "Tu perfil puede consultar alertas; el historial de atención está restringido."}</small></aside>
+      <aside className="panel alert-guide"><span className="eyebrow">Flujo de atención</span><h2>Seguimiento sin perder contexto</h2><p>Una alerta puede permanecer abierta mientras el encargado investiga o ejecuta una medida.</p><div className="status-mini-dashboard"><div><i className="pending" /><span><strong>{alerts.filter((item) => item.status === "pending").length}</strong>Pendientes</span></div><div><i className="in-progress" /><span><strong>{inProgress}</strong>Tomando acción</span></div><div><i className="resolved" /><span><strong>{alerts.filter((item) => item.status === "resolved").length}</strong>Resueltas</span></div></div><ol><li>Abre la alerta y define su criticidad.</li><li>Guarda comentarios mientras se trabaja.</li><li>Selecciona “Resuelta” sólo al terminar.</li><li>Si reaparece, reábrela como un ciclo nuevo.</li></ol><small>{canManage ? "Cada reapertura inicia un ciclo separado y conserva el cierre anterior para auditoría y SLA." : "Tu perfil puede consultar alertas; el historial de atención está restringido."}</small></aside>
     </div>
   </div>;
 }
@@ -1383,6 +1893,7 @@ function AlertsView({ alerts, canManage, onOpen }: { alerts: AlertItem[]; canMan
 const permissionCopy: Record<Permission, string> = {
   view_dashboard: "Ver resumen operacional",
   view_transactions: "Consultar y exportar cargas",
+  manage_receipts: "Conciliar y registrar recepciones",
   manage_alerts: "Atender y cerrar alertas",
   manage_operators: "Gestionar operadores NFC",
   manage_equipment: "Gestionar equipos",
@@ -1393,7 +1904,7 @@ const permissionCopy: Record<Permission, string> = {
 const roleCopy: Record<UserRole, string> = { master: "Usuario maestro", administrator: "Administrador", supervisor: "Supervisor operacional", viewer: "Consulta" };
 const rolePreset: Record<Exclude<UserRole, "master">, Permission[]> = {
   administrator: Object.keys(permissionCopy) as Permission[],
-  supervisor: ["view_dashboard", "view_transactions", "manage_alerts", "manage_operators", "manage_equipment", "manage_associations"],
+  supervisor: ["view_dashboard", "view_transactions", "manage_receipts", "manage_alerts", "manage_operators", "manage_equipment", "manage_associations"],
   viewer: ["view_dashboard", "view_transactions"],
 };
 
@@ -1465,7 +1976,81 @@ function UserEditor({ value, onSave, onCancel }: { value: WebUser | null; onSave
   return <form onSubmit={submit}><ModalIntro eyebrow={value ? "Editar cuenta" : "Nuevo acceso"} title={value ? value.name : "Enrolar usuario"} detail="El tipo de usuario propone un conjunto seguro de permisos que puedes reducir antes de guardar." /><div className="form-grid"><label>Nombre completo<input name="name" defaultValue={value?.name} required /></label>{!value && <label>Correo electrónico<input name="email" type="email" autoComplete="off" required /></label>}<label className="full">Tipo de usuario<select value={role} onChange={(event) => changeRole(event.target.value as Exclude<UserRole, "master">)}><option value="administrator">Administrador</option><option value="supervisor">Supervisor operacional</option><option value="viewer">Consulta</option></select></label></div><div className="permission-editor"><strong>Permisos efectivos</strong><p>Sólo se muestran permisos compatibles con el rol seleccionado.</p>{rolePreset[role].map((permission) => <div className="permission-option" key={permission}><input id={`permission-${permission}`} type="checkbox" checked={permissions.includes(permission)} disabled={permission === "view_dashboard"} onChange={(event) => setPermissions((items) => event.target.checked ? [...items, permission] : items.filter((item) => item !== permission))} /><label htmlFor={`permission-${permission}`}><b>{permissionCopy[permission]}</b><small>{permission === "manage_users" ? "Permite administrar cuentas; la eliminación definitiva queda reservada al usuario maestro." : "Aplicado inmediatamente al próximo ingreso."}</small></label></div>)}</div>{error && <div className="auth-error" role="alert"><span>!</span>{error}</div>}<div className="modal-actions"><button type="button" className="secondary-button" onClick={onCancel}>Cancelar</button><button className="primary-button" disabled={submitting}>{submitting ? "Guardando…" : value ? "Guardar cambios" : "Enrolar y generar clave"}</button></div></form>;
 }
 
-function SystemView({ edge, sensor, online, canManage, onRefresh, onReset }: { edge: FuelHistoryResponse["edge"]; sensor: FuelHistoryResponse["sensor"] | null; online: boolean; canManage: boolean; onRefresh: () => Promise<void>; onReset: (password: string) => Promise<void> }) {
+function DataExportView({ exporting, onExport }: { exporting: DataExportDataset | null; onExport: (dataset: DataExportDataset) => Promise<void> }) {
+  const exports: Array<{ id: Exclude<DataExportDataset, "all">; mark: string; title: string; description: string; detail: string }> = [
+    { id: "levels", mark: "NL", title: "Niveles históricos", description: "Lecturas cronológicas del estanque registradas por el sensor OCIO.", detail: "Fecha, litros, fuente" },
+    { id: "transactions", mark: "TX", title: "Transacciones", description: "Recepciones y despachos con volumen, operador, equipo y evidencia.", detail: "Trazabilidad completa" },
+    { id: "users", mark: "US", title: "Usuarios enrolados", description: "Cuentas habilitadas, roles, permisos y último acceso al sistema.", detail: "Sin correos ni claves" },
+    { id: "associations", mark: "VX", title: "Vinculaciones operador–equipo", description: "Relaciones vigentes e históricas entre personas y maquinaria.", detail: "Incluye tractores" },
+    { id: "operators", mark: "OP", title: "Operadores", description: "Catálogo operacional y estado de enrolamiento de cada operador.", detail: "Sin RUT ni ID RFID" },
+    { id: "equipment", mark: "EQ", title: "Equipos", description: "Inventario de tractores, trilladoras y cuatrimotos vinculables.", detail: "Módulo, fundo y vigencia" },
+    { id: "credentials", mark: "RF", title: "Enrolamientos RFID", description: "Estado de credenciales por operador, sin exponer sus identificadores.", detail: "Datos sanitizados" },
+    { id: "alerts", mark: "AL", title: "Alertas", description: "Eventos de nivel, validación y salud del sistema con su resolución.", detail: "Estado y prioridad" },
+  ];
+  const busy = exporting !== null;
+  return (
+    <div className="data-export-layout">
+      <section className="panel data-export-hero">
+        <div className="data-export-hero-mark" aria-hidden="true">DATA</div>
+        <div>
+          <span className="eyebrow">Exportación consolidada</span>
+          <h2>Base operacional completa</h2>
+          <p>Niveles, movimientos, usuarios, operadores, equipos, vinculaciones, enrolamientos y alertas en un único archivo estructurado.</p>
+          <div className="data-export-tags"><span>JSON</span><span>Solo lectura</span><span>8 colecciones</span></div>
+        </div>
+        <button className="primary-button data-export-all" type="button" disabled={busy} onClick={() => void onExport("all")}>
+          <span aria-hidden="true">↓</span>{exporting === "all" ? "Preparando…" : "Exportar base completa"}
+        </button>
+      </section>
+
+      <section className="data-export-grid" aria-label="Conjuntos disponibles para exportar">
+        {exports.map((item) => (
+          <article className="panel data-export-card" key={item.id} aria-busy={exporting === item.id}>
+            <div className="data-export-card-heading"><span className="data-export-card-mark" aria-hidden="true">{item.mark}</span><span className="data-format">CSV</span></div>
+            <h2>{item.title}</h2>
+            <p>{item.description}</p>
+            <div className="data-export-card-footer"><small>{item.detail}</small><button className="secondary-button small" type="button" disabled={busy} onClick={() => void onExport(item.id)}><span aria-hidden="true">↓</span>{exporting === item.id ? "Preparando…" : "Exportar"}</button></div>
+          </article>
+        ))}
+      </section>
+
+      <section className="panel data-export-safety">
+        <span aria-hidden="true">✓</span>
+        <div><strong>Exportación segura y sin importación</strong><p>Las descargas no modifican registros. Se excluyen contraseñas, correos, RUT, secretos e identificadores RFID, y cada exportación queda registrada en la auditoría del sistema.</p></div>
+      </section>
+    </div>
+  );
+}
+
+function TechnologyAdoptionSystemPanel({ dashboard, loading, canManage, onRefresh, onOpen }: { dashboard: TechnologyAdoptionDashboard | null; loading: boolean; canManage: boolean; onRefresh: () => Promise<void>; onOpen: () => void }) {
+  const [starting, setStarting] = useState(false);
+  const [error, setError] = useState("");
+  if (dashboard?.settings.programStatus === "completed") return null;
+  const active = dashboard?.settings.programStatus === "active";
+  const stage = dashboard?.settings.stage ?? "full";
+  const start = async () => {
+    setStarting(true); setError("");
+    try {
+      const response = await fetch("/api/technology-adoption/start", {
+        method: "POST", credentials: "same-origin", headers: { "Content-Type": "application/json" }, body: "{}",
+      });
+      const body = await response.json() as { error?: string };
+      if (!response.ok) throw new Error(body.error ?? "No fue posible iniciar la adopción tecnológica.");
+      await onRefresh();
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "No fue posible iniciar la adopción tecnológica.");
+    } finally {
+      setStarting(false);
+    }
+  };
+  return <section className={`panel adoption-system-card ${active ? `active stage-${stage}` : "inactive"}`}>
+    <span className="adoption-system-mark" aria-hidden="true">AT</span>
+    <div className="adoption-system-copy"><span className="eyebrow">Adopción tecnológica</span><h2>{active ? adoptionStageCopy[stage].title : "Aprendizaje gradual disponible"}</h2><p>{active ? "El programa está visible al final de Operación mientras el equipo completa su aprendizaje." : "Inicia una ruta temporal de aprendizaje asistido, identidad RFID y trazabilidad completa. Al terminar, sus pantallas desaparecerán automáticamente."}</p>{error && <div className="auth-error" role="alert"><span>!</span>{error}</div>}</div>
+    <div className="adoption-system-action">{active ? <><span><i />Programa activo</span><button className="secondary-button compact" type="button" onClick={onOpen}>Abrir adopción tecnológica</button></> : canManage ? <button className="primary-button" type="button" disabled={loading || starting || !dashboard} onClick={() => void start()}>{starting ? "Iniciando…" : "Iniciar etapa de adopción tecnológica"}</button> : <small>Requiere administración del sistema</small>}</div>
+  </section>;
+}
+
+function SystemView({ edge, sensor, adoption, adoptionLoading, online, canManage, canManageAdoption, canManageManualMode, canTestPump, onRefresh, onRefreshAdoption, onOpenAdoption, onReset }: { edge: FuelHistoryResponse["edge"]; sensor: FuelHistoryResponse["sensor"] | null; adoption: TechnologyAdoptionDashboard | null; adoptionLoading: boolean; online: boolean; canManage: boolean; canManageAdoption: boolean; canManageManualMode: boolean; canTestPump: boolean; onRefresh: () => Promise<void>; onRefreshAdoption: () => Promise<void>; onOpenAdoption: () => void; onReset: (password: string) => Promise<void> }) {
   const reportedAt = edge ? formatAlertDate(edge.occurredAt) : "Sin reporte recibido";
   const components = [
     ["PLC", "Raspberry PLC 19R", edge ? `Estado: ${edge.state}` : "Esperando telemetría", online],
@@ -1474,7 +2059,80 @@ function SystemView({ edge, sensor, online, canManage, onRefresh, onReset }: { e
     ["K2", "Medidor K24 Pulser", !edge?.k24Enabled ? "Pendiente de conexión" : edge.k24Healthy ? "Telemetría saludable" : "Requiere revisión", Boolean(edge?.k24Enabled && edge?.k24Healthy && online)],
     ["OC", "Sensor PIUSI OCIO", !edge?.tankLevelEnabled ? "Pendiente de conexión" : sensor?.latestReadingAt && !sensor.latestReadingAt.startsWith("1970") ? formatCompactLiters(sensor.currentLevel) : "Esperando primera lectura", Boolean(edge?.tankLevelEnabled && sensor?.latestReadingAt && !sensor.latestReadingAt.startsWith("1970"))],
   ] as const;
-  return <div className="system-layout"><div className="system-primary"><section className="panel system-health"><div className="health-hero"><span className="health-ring">{online ? "✓" : "!"}</span><div><span className="eyebrow">Estado general</span><h2>{online ? "Controlador edge reportando" : "Controlador sin reporte reciente"}</h2><p>Último estado recibido: {reportedAt}. La Raspberry mantiene la autoridad sobre R0.1.</p></div><strong>{edge?.relayEnergized ? "Bomba habilitada" : "Relé abierto"}<small>estado informado por el PLC</small></strong></div><div className="component-list">{components.map((item) => <div className="component-row" key={item[1]}><span className="component-mark">{item[0]}</span><div><strong>{item[1]}</strong><small>{item[2]}</small></div><span className={`component-online ${item[3] ? "" : "offline"}`}><i />{item[3] ? "En línea" : "Sin confirmar"}</span><time>{item[0] === "OC" && sensor?.latestReadingAt && !sensor.latestReadingAt.startsWith("1970") ? formatAlertDate(sensor.latestReadingAt) : reportedAt}</time></div>)}</div></section><BluetoothCalibration /></div><aside className="system-side">{canManage && <RelayTestPanel edge={edge} online={online} onRefresh={onRefresh} />}{canManage && <FuelDataResetPanel onReset={onReset} />}<section className="panel protected-card"><span className="lock-mark">⌾</span><div><h3>Configuración protegida</h3><p>Calibraciones, certificados y pruebas físicas requieren permiso de administración del sistema.</p></div></section><section className="panel version-card"><div><small>fuel-edge</small><strong>v0.3.10</strong></div><span>{edge?.moduleId ?? "Módulo pendiente"}<br />{edge?.siteId ?? "Fundo Santa Isabel"}</span></section></aside></div>;
+  return <div className="system-layout"><div className="system-primary"><TechnologyAdoptionSystemPanel dashboard={adoption} loading={adoptionLoading} canManage={canManageAdoption} onRefresh={onRefreshAdoption} onOpen={onOpenAdoption} />{canManageManualMode && <ManualModePanel edge={edge} online={online} onRefresh={onRefresh} />}<section className="panel system-health"><div className="health-hero"><span className="health-ring">{online ? "✓" : "!"}</span><div><span className="eyebrow">Estado general</span><h2>{online ? "Controlador edge reportando" : "Controlador sin reporte reciente"}</h2><p>Último estado recibido: {reportedAt}. La Raspberry mantiene la autoridad sobre R0.1.</p></div><strong>{edge?.relayEnergized ? "Bomba habilitada" : "Relé abierto"}<small>estado informado por el PLC</small></strong></div><div className="component-list">{components.map((item) => <div className="component-row" key={item[1]}><span className="component-mark">{item[0]}</span><div><strong>{item[1]}</strong><small>{item[2]}</small></div><span className={`component-online ${item[3] ? "" : "offline"}`}><i />{item[3] ? "En línea" : "Sin confirmar"}</span><time>{item[0] === "OC" && sensor?.latestReadingAt && !sensor.latestReadingAt.startsWith("1970") ? formatAlertDate(sensor.latestReadingAt) : reportedAt}</time></div>)}</div></section>{canManage && <BluetoothCalibration />}</div><aside className="system-side">{canTestPump && <RelayTestPanel edge={edge} online={online} onRefresh={onRefresh} />}{canManage && <FuelDataResetPanel onReset={onReset} />}<section className="panel protected-card"><span className="lock-mark">⌾</span><div><h3>Configuración protegida</h3><p>Calibraciones, certificados y pruebas físicas requieren permiso de administración del sistema.</p></div></section><section className="panel version-card"><div><small>fuel-edge</small><strong>v0.3.17</strong></div><span>{edge?.moduleId ?? "Módulo pendiente"}<br />{edge?.siteId ?? "Fundo Santa Isabel"}</span></section></aside></div>;
+}
+
+function ManualModePanel({ edge, online, onRefresh, variant = "manual" }: { edge: FuelHistoryResponse["edge"]; online: boolean; onRefresh: () => Promise<void>; variant?: "manual" | "adoption" }) {
+  const [schedule, setSchedule] = useState<ManualModeSchedule | null>(null);
+  const [open, setOpen] = useState(false);
+  const [startAt, setStartAt] = useState(() => localDateTimeFromNow(0, 2));
+  const [endAt, setEndAt] = useState(() => localDateTimeFromNow(0, 62));
+  const [loading, setLoading] = useState(true);
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState("");
+  const [now, setNow] = useState(0);
+  const load = useCallback(async () => {
+    const response = await fetch("/api/manual-mode", { credentials: "same-origin", cache: "no-store" });
+    const body = await response.json() as { schedule?: ManualModeSchedule | null; error?: string };
+    if (!response.ok) throw new Error(body.error ?? "No fue posible consultar el modo manual.");
+    setSchedule(body.schedule ?? null);
+  }, []);
+  useEffect(() => {
+    let cancelled = false;
+    const refresh = () => { setNow(Date.now()); return load().catch((caught) => !cancelled && setError(caught instanceof Error ? caught.message : "No fue posible consultar el modo manual.")).finally(() => !cancelled && setLoading(false)); };
+    refresh();
+    const timer = window.setInterval(() => { setNow(Date.now()); refresh(); }, 3000);
+    return () => { cancelled = true; window.clearInterval(timer); };
+  }, [load]);
+  const hasOpenSchedule = schedule?.status === "scheduled" || schedule?.status === "active";
+  const belongsToVariant = schedule?.purpose === (variant === "adoption" ? "adoption_assisted" : "manual");
+  const withinWindow = Boolean(schedule && now >= new Date(schedule.startAt).getTime() && now < new Date(schedule.endAt).getTime());
+  const physicallyActive = Boolean(hasOpenSchedule && withinWindow && online && edge?.state === "manual_mode" && edge.relayEnergized);
+  const submit = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    setSubmitting(true); setError("");
+    try {
+      const start = new Date(startAt); const end = new Date(endAt);
+      if (!Number.isFinite(start.getTime()) || !Number.isFinite(end.getTime()) || end <= start) throw new Error("El fin debe ser posterior al inicio.");
+      const response = await fetch("/api/manual-mode", {
+        method: "POST", credentials: "same-origin", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ startAt: start.toISOString(), endAt: end.toISOString(), purpose: variant === "adoption" ? "adoption_assisted" : "manual" }),
+      });
+      const body = await response.json() as { schedule?: ManualModeSchedule; error?: string };
+      if (!response.ok || !body.schedule) throw new Error(body.error ?? "No fue posible programar el modo manual.");
+      setSchedule(body.schedule); setOpen(false); await onRefresh();
+    } catch (caught) { setError(caught instanceof Error ? caught.message : "No fue posible programar el modo manual."); }
+    finally { setSubmitting(false); }
+  };
+  const cancel = async () => {
+    if (!schedule) return;
+    setSubmitting(true); setError("");
+    try {
+      const response = await fetch(`/api/manual-mode/${encodeURIComponent(schedule.id)}`, { method: "DELETE", credentials: "same-origin" });
+      const body = await response.json() as { schedule?: ManualModeSchedule; error?: string };
+      if (!response.ok || !body.schedule) throw new Error(body.error ?? "No fue posible cancelar el modo manual.");
+      setSchedule(body.schedule); await onRefresh();
+    } catch (caught) { setError(caught instanceof Error ? caught.message : "No fue posible cancelar el modo manual."); }
+    finally { setSubmitting(false); }
+  };
+  const status = physicallyActive ? variant === "adoption" ? "Sesión asistida activa: práctica en curso" : "Modo manual activo: bomba habilitada"
+    : hasOpenSchedule && withinWindow ? "Esperando confirmación del controlador edge"
+      : schedule?.status === "scheduled" ? belongsToVariant && variant === "adoption" ? "Sesión asistida programada" : belongsToVariant ? "Modo manual programado" : "Existe otra ventana operacional"
+        : schedule?.status === "cancelled" ? "Último período cancelado"
+          : schedule?.status === "completed" ? "Último período completado"
+            : schedule?.status === "expired" ? "El período terminó sin activarse"
+              : schedule?.status === "failed" ? schedule.error ?? "La activación falló" : "Sin períodos programados";
+  return <>
+    <section className={`panel manual-mode-card ${variant === "adoption" ? "adoption-assisted" : ""} ${physicallyActive ? "active" : hasOpenSchedule ? "scheduled" : ""}`}>
+      <div className="manual-mode-heading"><span className="manual-mode-mark">{variant === "adoption" ? "1" : "M"}</span><div><span className="eyebrow">{variant === "adoption" ? "Aprendizaje en terreno" : "Operación excepcional"}</span><h2>{variant === "adoption" ? "Sesión asistida de adopción" : "Modo manual"}</h2><p>{variant === "adoption" ? "Una ventana aprobada permite practicar la secuencia real: despertar el MIM, presentar el RFID, esperar la confirmación y cargar. Cada intento conserva la mejor evidencia conseguida." : "Durante el período, R0.1 permanece cerrado para surtir normalmente. Si se presenta un tag, los pulsos K24 se imputan a su operador sin interrumpir la bomba."}</p></div><span className={`manual-mode-state ${physicallyActive ? "active" : ""}`}><i />{status}</span></div>
+      {schedule && <div className="manual-mode-window"><div><small>INICIO</small><strong>{formatAlertDate(schedule.startAt)}</strong></div><span>→</span><div><small>FIN</small><strong>{formatAlertDate(schedule.endAt)}</strong></div><div><small>{schedule.purpose === "adoption_assisted" ? "ACOMPAÑADO POR" : "AUTORIZADO POR"}</small><strong>{schedule.actorName}</strong></div></div>}
+      {error && <div className="auth-error" role="alert"><span>!</span>{error}</div>}
+      <div className="manual-mode-actions"><button className="primary-button" type="button" disabled={loading || Boolean(hasOpenSchedule) || submitting} onClick={() => { setError(""); setStartAt(localDateTimeFromNow(0, 2)); setEndAt(localDateTimeFromNow(0, 62)); setOpen(true); }}>{loading ? "Consultando…" : variant === "adoption" ? "Programar sesión asistida" : "Programar modo manual"}</button>{hasOpenSchedule && belongsToVariant && <button className="secondary-button" type="button" disabled={submitting} onClick={() => void cancel()}>{submitting ? "Cancelando…" : variant === "adoption" ? "Cancelar sesión" : "Cancelar período"}</button>}</div>
+      {hasOpenSchedule && !belongsToVariant && <small className="manual-mode-warning">Ya existe una ventana de {schedule?.purpose === "adoption_assisted" ? "aprendizaje asistido" : "modo manual"}. Debe finalizar o cancelarse antes de programar otra.</small>}
+      {!online && hasOpenSchedule && <small className="manual-mode-warning">El período quedó guardado; la Raspberry lo aplicará al recuperar conexión dentro de la ventana.</small>}
+    </section>
+    {open && <div className="modal-backdrop" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && !submitting && setOpen(false)}><section className="modal manual-mode-modal" role="dialog" aria-modal="true" aria-labelledby="manual-mode-title"><button className="modal-close" type="button" disabled={submitting} onClick={() => setOpen(false)} aria-label="Cerrar">×</button><form onSubmit={submit}><div className="modal-intro"><span className="eyebrow">Administrador o supervisor operacional</span><h2 id="manual-mode-title">{variant === "adoption" ? "Programar sesión asistida" : "Programar modo manual"}</h2><p>{variant === "adoption" ? "Selecciona una ventana con acompañamiento en terreno. El controlador permitirá practicar la secuencia completa y conservará la evidencia conseguida en cada carga." : "Selecciona el inicio y el fin. El controlador cerrará el relé sólo dentro de esa ventana y lo abrirá automáticamente al terminar."}</p></div><div className="form-grid"><label>Inicio<input name="startAt" type="datetime-local" min={localDateTimeFromNow(0)} value={startAt} onChange={(event) => setStartAt(event.target.value)} required /></label><label>Fin<input name="endAt" type="datetime-local" min={startAt || localDateTimeFromNow(0)} value={endAt} onChange={(event) => setEndAt(event.target.value)} required /></label></div><div className="form-note warning"><span>!</span>Durante la ventana la bomba quedará habilitada aun sin tag. Mantén la zona controlada y el acompañamiento presente.</div><div className="form-note success"><span>✓</span>{variant === "adoption" ? "Un RFID válido identifica al operador; si el MIM y la asociación también validan, la carga contará como trazabilidad completa." : "Cada tag válido abre un segmento de consumo independiente; K24 imputará sus litros al operador identificado."}</div>{error && <div className="auth-error" role="alert"><span>!</span>{error}</div>}<div className="modal-actions"><button className="secondary-button" type="button" disabled={submitting} onClick={() => setOpen(false)}>Cancelar</button><button className="primary-button" type="submit" disabled={submitting}>{submitting ? "Programando…" : variant === "adoption" ? "Confirmar sesión asistida" : "Confirmar período manual"}</button></div></form></section></div>}
+  </>;
 }
 
 function FuelDataResetPanel({ onReset }: { onReset: (password: string) => Promise<void> }) {
@@ -1537,18 +2195,27 @@ function FuelDataResetPanel({ onReset }: { onReset: (password: string) => Promis
 
 function RelayTestPanel({ edge, online, onRefresh }: { edge: FuelHistoryResponse["edge"]; online: boolean; onRefresh: () => Promise<void> }) {
   const [command, setCommand] = useState<RelayTestCommand | null>(null);
+  const [open, setOpen] = useState(false);
+  const [durationSeconds, setDurationSeconds] = useState(10);
   const [requesting, setRequesting] = useState(false);
   const [error, setError] = useState("");
   const [clock, setClock] = useState(0);
+  const passwordInput = useRef<HTMLInputElement>(null);
   const active = command?.status === "pending" || command?.status === "running";
-  const available = Boolean(online && edge?.state === "locked" && !edge.relayEnergized && edge.k24Enabled && edge.k24Healthy && !active);
+  const operationallyReady = Boolean(online && edge?.state === "locked" && !edge.relayEnergized && edge.k24Enabled && edge.k24Healthy);
   const startedAtMilliseconds = command?.startedAt ? new Date(command.startedAt).getTime() : Number.NaN;
   const elapsedSeconds = Number.isFinite(startedAtMilliseconds)
     ? Math.max(0, Math.floor((clock - startedAtMilliseconds) / 1000))
     : 0;
   const remaining = command?.status === "running"
     ? Math.max(0, Math.min(command.durationSeconds, command.durationSeconds - elapsedSeconds))
-    : 10;
+    : command?.durationSeconds ?? durationSeconds;
+
+  useEffect(() => {
+    if (!open) return;
+    const frame = window.requestAnimationFrame(() => passwordInput.current?.focus());
+    return () => window.cancelAnimationFrame(frame);
+  }, [open]);
 
   useEffect(() => {
     if (!active || !command) return;
@@ -1566,26 +2233,34 @@ function RelayTestPanel({ edge, online, onRefresh }: { edge: FuelHistoryResponse
     return () => { cancelled = true; window.clearInterval(statusTimer); window.clearInterval(clockTimer); };
   }, [active, command, onRefresh]);
 
-  const start = async () => {
-    if (!window.confirm("R0.1 se energizará durante 10 segundos. Confirma que la zona y el circuito están preparados para la prueba.")) return;
+  const start = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const form = event.currentTarget;
+    const password = String(new FormData(form).get("administratorPassword"));
     setRequesting(true); setError("");
     try {
       const response = await fetch("/api/relay-test", {
-        method: "POST", credentials: "same-origin", headers: { "Content-Type": "application/json" }, body: "{}",
+        method: "POST", credentials: "same-origin", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ password, durationSeconds }),
       });
       const body = await response.json() as { command?: RelayTestCommand; error?: string };
-      if (!response.ok || !body.command) throw new Error(body.error ?? "No fue posible iniciar la prueba de relé.");
+      if (!response.ok || !body.command) throw new Error(body.error ?? "No fue posible iniciar la prueba de bomba.");
       setCommand(body.command); setClock(Date.now());
-    } catch (caught) { setError(caught instanceof Error ? caught.message : "No fue posible iniciar la prueba de relé."); }
+      form.reset(); setOpen(false);
+    } catch (caught) { setError(caught instanceof Error ? caught.message : "No fue posible iniciar la prueba de bomba."); }
     finally { setRequesting(false); }
   };
 
-  const statusCopy = command?.status === "completed" ? "Prueba completada; R0.1 volvió a LOW"
-    : command?.status === "failed" ? command.error ?? "La prueba fue interrumpida"
+  const statusCopy = command?.status === "completed" ? "Transacción completada; la bomba volvió a quedar bloqueada"
+    : command?.status === "failed" ? command.error ?? "La transacción de prueba fue interrumpida"
       : command?.status === "expired" ? command.error ?? "La solicitud venció"
-        : command?.status === "running" ? `Relé activo · ${remaining} s restantes`
+        : command?.status === "running" ? `Bomba habilitada · ${remaining} s restantes`
           : command?.status === "pending" ? "Esperando a la Raspberry…" : "Disponible con el punto bloqueado";
-  return <section className={`panel relay-test-card ${command?.status ?? "idle"}`}><div className="relay-test-heading"><span className="relay-test-mark">R</span><div><span className="eyebrow">Mantenimiento local</span><h2>Test de relé R0.1</h2></div></div><p>Energiza la salida durante 10 segundos. La Raspberry bloquea nuevas cargas y abre antes si K24 detecta flujo o aparece una falla.</p>{command?.status === "running" && <div className="relay-test-progress" role="progressbar" aria-label="Tiempo restante de la prueba" aria-valuemin={0} aria-valuemax={10} aria-valuenow={10 - remaining}><span style={{ width: `${(10 - remaining) * 10}%` }} /></div>}<strong className="relay-test-status" role="status">{statusCopy}</strong>{error && <small className="relay-test-error" role="alert">{error}</small>}<button className="primary-button compact" type="button" disabled={!available || requesting} onClick={() => void start()}>{requesting ? "Solicitando…" : active ? "Prueba en curso" : "Probar relé por 10 s"}</button>{!online && <small>El controlador debe estar reportando para habilitar la prueba.</small>}{online && edge?.state !== "locked" && !active && <small>Disponible sólo cuando el estado sea LOCKED.</small>}{online && (!edge?.k24Enabled || !edge.k24Healthy) && !active && <small>K24 debe estar habilitado y saludable.</small>}</section>;
+  const completedSeconds = command ? Math.max(0, command.durationSeconds - remaining) : 0;
+  return <>
+    <section className={`panel relay-test-card ${command?.status ?? "idle"}`}><div className="relay-test-heading"><span className="relay-test-mark">P</span><div><span className="eyebrow">Mantenimiento local</span><h2>Prueba de bomba</h2></div></div><p>Actúa R0.1 directamente desde la Raspberry, sin usar el validador. Cada ejecución queda registrada como una transacción de prueba.</p>{command?.status === "running" && <div className="relay-test-progress" role="progressbar" aria-label="Tiempo restante de la prueba" aria-valuemin={0} aria-valuemax={command.durationSeconds} aria-valuenow={completedSeconds}><span style={{ width: `${completedSeconds / command.durationSeconds * 100}%` }} /></div>}<strong className="relay-test-status" role="status">{statusCopy}</strong>{error && !open && <small className="relay-test-error" role="alert">{error}</small>}<button className="primary-button compact" type="button" disabled={active || requesting} onClick={() => { setError(""); setOpen(true); }}>{active ? "Prueba en curso" : "Probar bomba"}</button>{!online && <small>Podrás configurar la prueba; la confirmación exigirá que la Raspberry esté reportando.</small>}{online && edge?.state !== "locked" && !active && <small>La ejecución requiere el punto en estado LOCKED.</small>}{online && (!edge?.k24Enabled || !edge.k24Healthy) && !active && <small>K24 debe estar habilitado y saludable.</small>}</section>
+    {open && <div className="modal-backdrop" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && !requesting && setOpen(false)}><section className="modal pump-test-modal" role="dialog" aria-modal="true" aria-labelledby="pump-test-title"><button className="modal-close" type="button" disabled={requesting} onClick={() => setOpen(false)} aria-label="Cerrar">×</button><form onSubmit={start}><div className="modal-intro"><span className="eyebrow">Acción exclusiva de administrador</span><h2 id="pump-test-title">Probar la bomba</h2><p>La Raspberry energizará R0.1 durante el tiempo indicado. El validador no participa en esta operación.</p></div><div className="form-grid pump-test-form"><label>Tiempo de habilitación (segundos)<input name="durationSeconds" type="number" min={5} max={60} step={1} value={durationSeconds} onChange={(event) => setDurationSeconds(Number(event.target.value))} required /></label><label>Clave de administrador<input ref={passwordInput} name="administratorPassword" type="password" autoComplete="current-password" required maxLength={256} /></label></div><div className="form-note warning"><span>!</span>Confirma que la zona esté despejada. K24 o una falla de control abrirán el relé antes del tiempo solicitado.</div><div className="form-note success"><span>✓</span>Se registrarán administrador, duración, inicio y resultado como transacción de prueba de bomba.</div>{!operationallyReady && <div className="auth-error" role="alert"><span>!</span>La Raspberry debe estar en línea, en LOCKED, con R0.1 abierto y K24 saludable.</div>}{error && <div className="auth-error" role="alert"><span>!</span>{error}</div>}<div className="modal-actions"><button className="secondary-button" type="button" disabled={requesting} onClick={() => setOpen(false)}>Cancelar</button><button className="primary-button" type="submit" disabled={requesting || !operationallyReady || durationSeconds < 5 || durationSeconds > 60}>{requesting ? "Verificando y habilitando…" : "Confirmar prueba de bomba"}</button></div></form></section></div>}
+  </>;
 }
 
 function BluetoothCalibration() {
@@ -1636,18 +2311,23 @@ function EmptyState({ title, detail }: { title: string; detail: string }) {
   return <div className="empty-state"><span>⌕</span><strong>{title}</strong><p>{detail}</p></div>;
 }
 
-function ModalLayer({ modal, alerts, transactions, operators, rfidCredentials, equipment, candidates, userName, canManageAlerts, isProviderAdmin, onClose, onAddOperator, onAddEquipment, onAddAssociation, onEnrollEquipment, onNfcEnrolled, onAssignRfid, onDeleteRfid, onPermanentDelete, onUpdateAlert }: { modal: NonNullable<Modal>; alerts: AlertItem[]; transactions: Transaction[]; operators: Operator[]; rfidCredentials: RfidCredential[]; equipment: Equipment[]; candidates: EnrollmentCandidate[]; userName: string; canManageAlerts: boolean; isProviderAdmin: boolean; onClose: () => void; onAddOperator: (item: Operator) => Promise<void>; onAddEquipment: (item: Equipment) => void; onAddAssociation: (item: Association) => void; onEnrollEquipment: (moduleId: string, assignment: EnrollmentAssignment) => Promise<void>; onNfcEnrolled: () => Promise<void>; onAssignRfid: (credentialId: string, operatorId: string | null) => Promise<void>; onDeleteRfid: (credentialId: string) => Promise<void>; onPermanentDelete: (type: ManagedEntityType, id: string) => void; onUpdateAlert: (alertId: string, update: { description: string; status: AlertStatus; priority: AlertPriority }) => Promise<void> }) {
+function ModalLayer({ modal, alerts, transactions, operators, rfidCredentials, equipment, candidates, userName, canManageAlerts, isProviderAdmin, onClose, onAddOperator, onAddEquipment, onAddAssociation, onEnrollEquipment, onNfcEnrolled, onAssignRfid, onDeleteRfid, onPermanentDelete, onUpdateAlert, onReopenAlert, onOpenAlert }: { modal: NonNullable<Modal>; alerts: AlertItem[]; transactions: Transaction[]; operators: Operator[]; rfidCredentials: RfidCredential[]; equipment: Equipment[]; candidates: EnrollmentCandidate[]; userName: string; canManageAlerts: boolean; isProviderAdmin: boolean; onClose: () => void; onAddOperator: (item: Operator) => Promise<void>; onAddEquipment: (item: Equipment) => void; onAddAssociation: (item: Association) => void; onEnrollEquipment: (moduleId: string, assignment: EnrollmentAssignment) => Promise<void>; onNfcEnrolled: () => Promise<void>; onAssignRfid: (credentialId: string, operatorId: string | null) => Promise<void>; onDeleteRfid: (credentialId: string) => Promise<void>; onPermanentDelete: (type: ManagedEntityType, id: string) => void; onUpdateAlert: (alertId: string, update: { description: string; status: AlertStatus; priority: AlertPriority }) => Promise<void>; onReopenAlert: (alertId: string, update: { reason: string; priority: AlertPriority }) => Promise<void>; onOpenAlert: (alertId: string) => void }) {
+  const modalPanelRef = useRef<HTMLElement | null>(null);
+  const modalContentKey = modal.type === "alertDetail" ? `${modal.type}:${modal.alertId}` : modal.type;
   useEffect(() => {
     const close = (event: KeyboardEvent) => event.key === "Escape" && onClose();
     window.addEventListener("keydown", close);
     return () => window.removeEventListener("keydown", close);
   }, [onClose]);
+  useEffect(() => {
+    modalPanelRef.current?.scrollTo({ top: 0 });
+  }, [modalContentKey]);
   const transaction = modal.type === "transaction" ? transactions.find((item) => item.id === modal.id) : null;
   const selectedEquipment = modal.type === "equipmentDetail" ? equipment.find((item) => item.id === modal.id) : null;
   const selectedAlert = modal.type === "alertDetail" ? alerts.find((item) => item.id === modal.alertId) : null;
   const enrollmentCandidate = modal.type === "equipmentEnrollment" ? candidates.find((item) => item.moduleId === modal.moduleId) : null;
   const enrolledEquipment = enrollmentCandidate ? equipment.find((item) => item.module === enrollmentCandidate.moduleId && !item.archivedAt) : null;
-  return <div className="modal-backdrop" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && onClose()}><section className={`modal ${modal.type === "alertDetail" ? "alert-detail-modal" : ""}`} role="dialog" aria-modal="true" aria-labelledby="modal-title">
+  return <div className="modal-backdrop" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && onClose()}><section ref={modalPanelRef} className={`modal ${modal.type === "alertDetail" ? "alert-detail-modal" : ""}`} role="dialog" aria-modal="true" aria-labelledby="modal-title">
     <button className="modal-close" onClick={onClose} aria-label="Cerrar">×</button>
     {modal.type === "operator" && <OperatorForm onSubmit={onAddOperator} onCancel={onClose} />}
     {modal.type === "equipment" && <EquipmentForm onSubmit={onAddEquipment} onCancel={onClose} />}
@@ -1661,7 +2341,7 @@ function ModalLayer({ modal, alerts, transactions, operators, rfidCredentials, e
     {modal.type === "transaction" && (transaction ? <TransactionDetail item={transaction} /> : <EmptyState title="Carga no disponible" detail="Actualiza la lista e inténtalo nuevamente." />)}
     {modal.type === "equipmentDetail" && (selectedEquipment ? <EquipmentDetail item={selectedEquipment} /> : <EmptyState title="Equipo no disponible" detail="El registro fue actualizado o archivado." />)}
     {modal.type === "equipmentEnrollment" && (enrollmentCandidate ? <EquipmentEnrollmentForm candidate={enrollmentCandidate} equipment={enrolledEquipment ?? undefined} onSubmit={(assignment) => onEnrollEquipment(enrollmentCandidate.moduleId, assignment)} onCancel={onClose} /> : <EmptyState title="Módulo fuera de alcance" detail="Energízalo nuevamente para continuar." />)}
-    {modal.type === "alertDetail" && (selectedAlert ? <AlertDetail alert={selectedAlert} userName={userName} canManage={canManageAlerts} onSubmit={(update) => onUpdateAlert(modal.alertId, update)} /> : <EmptyState title="Alerta no disponible" detail="La alerta ya fue actualizada." />)}
+    {modal.type === "alertDetail" && (selectedAlert ? <AlertDetail key={selectedAlert.id} alert={selectedAlert} previousAlert={selectedAlert.parentAlertId ? alerts.find((item) => item.id === selectedAlert.parentAlertId) : undefined} reopenedAlert={selectedAlert.reopenedAsAlertId ? alerts.find((item) => item.id === selectedAlert.reopenedAsAlertId) : undefined} userName={userName} canManage={canManageAlerts} onSubmit={(update) => onUpdateAlert(modal.alertId, update)} onReopen={(update) => onReopenAlert(modal.alertId, update)} onOpenRelated={onOpenAlert} /> : <EmptyState title="Alerta no disponible" detail="La alerta ya fue actualizada." />)}
     {modal.type === "permanentDelete" && <PermanentDeleteConfirm name={modal.name} type={modal.entityType} onConfirm={() => onPermanentDelete(modal.entityType, modal.id)} onCancel={onClose} />}
   </section></div>;
 }
@@ -1680,7 +2360,7 @@ function EquipmentEnrollmentForm({ candidate, equipment, onSubmit, onCancel }: {
     catch (caught) { setError(caught instanceof Error ? caught.message : "No fue posible enrolar el módulo."); setSubmitting(false); }
   };
   const revalidating = Boolean(equipment || candidate.claimed);
-  return <form onSubmit={submit}><ModalIntro eyebrow="MIM DETECTADO Y VERIFICADO" title={revalidating ? "Asignar MIM a este fundo" : "Crear asignación temporal"} detail="La identidad del Módulo Identificador de Máquina se conserva. Aquí defines el equipo y hasta cuándo puede operar en el fundo actual." /><div className="enrollment-device-summary"><span className="bluetooth-mark">W</span><div><strong>{candidate.moduleId}</strong><small>{candidate.siteId} · enlace Wi-Fi {candidate.rssi} dBm</small></div></div><div className="form-grid"><label className="full">Nombre visible<input name="name" required minLength={3} maxLength={80} defaultValue={equipment?.name ?? candidate.requestedName ?? candidate.deviceName ?? ""} placeholder="Ej. Tractor John Deere 6155M" /></label><label>Tipo<select name="kind" required defaultValue={equipment?.kind ?? candidate.requestedKind ?? "Tractor"}><option>Tractor</option><option>Trilladora</option><option>Cuatrimoto</option></select></label><label>Vence en este fundo<input name="validUntil" type="datetime-local" required min={localDateTimeFromNow(0, 15)} defaultValue={localDateTimeFromNow(7)} /></label></div>{error && <div className="auth-error" role="alert"><span>!</span>{error}</div>}<div className="form-note success"><span>✓</span>Al vencer, la carga queda bloqueada. Para renovar o reasignar, mantén presionado 8 segundos el botón del MIM durante el arranque.</div><div className="modal-actions"><button type="button" className="secondary-button" onClick={onCancel}>Cancelar</button><button className="primary-button" disabled={submitting}>{submitting ? "Validando…" : revalidating ? "Asignar y revalidar" : "Nombrar y enrolar"}</button></div></form>;
+  return <form onSubmit={submit}><ModalIntro eyebrow="MIM DETECTADO Y VERIFICADO" title={revalidating ? "Asignar MIM a este fundo" : "Crear asignación temporal"} detail="La identidad del Módulo Identificador de Máquina se conserva. Aquí defines el equipo y hasta cuándo puede operar en el fundo actual." /><div className="enrollment-device-summary"><span className="bluetooth-mark">W</span><div><strong>{candidate.moduleId}</strong><small>{candidate.siteId} · enlace Wi-Fi {candidate.rssi} dBm</small></div></div><div className="form-grid"><label className="full">Nombre visible<input name="name" required minLength={3} maxLength={80} defaultValue={equipment?.name ?? candidate.requestedName ?? candidate.deviceName ?? ""} placeholder="Ej. Tractor John Deere 6155M" /></label><label>Tipo<select name="kind" required defaultValue={equipment?.kind ?? candidate.requestedKind ?? "Tractor"}><option>Tractor</option><option>Trilladora</option><option>Camión</option><option>Camioneta</option><option>Otro</option></select></label><label>Vence en este fundo<input name="validUntil" type="datetime-local" required min={localDateTimeFromNow(0, 15)} defaultValue={localDateTimeFromNow(7)} /></label></div>{error && <div className="auth-error" role="alert"><span>!</span>{error}</div>}<div className="form-note success"><span>✓</span>Al vencer, la carga queda bloqueada. Para renovar o reasignar, mantén presionado 8 segundos el botón del MIM durante el arranque.</div><div className="modal-actions"><button type="button" className="secondary-button" onClick={onCancel}>Cancelar</button><button className="primary-button" disabled={submitting}>{submitting ? "Validando…" : revalidating ? "Asignar y revalidar" : "Nombrar y enrolar"}</button></div></form>;
 }
 
 function ModalIntro({ eyebrow, title, detail }: { eyebrow: string; title: string; detail: string }) {
@@ -1711,7 +2391,7 @@ function OperatorForm({ onSubmit, onCancel }: { onSubmit: (item: Operator) => Pr
 
 function EquipmentForm({ onSubmit, onCancel }: { onSubmit: (item: Equipment) => void; onCancel: () => void }) {
   const submit = (event: FormEvent<HTMLFormElement>) => { event.preventDefault(); const data = new FormData(event.currentTarget); const condition = String(data.get("condition")) as Equipment["condition"]; const expiryValue = String(data.get("expiry")); onSubmit({ id: `eq-${Date.now()}`, name: String(data.get("name")), kind: String(data.get("kind")) as EquipmentKind, condition, module: String(data.get("module")) || "Sin módulo", siteId: "", active: true, expiry: condition === "Permanente" || !expiryValue ? undefined : new Date(expiryValue).toISOString() }); };
-  return <form onSubmit={submit}><ModalIntro eyebrow="Inventario" title="Crear equipo abastecible" detail="El equipo quedará disponible para asociarlo con operadores activos." /><div className="form-grid"><label className="full">Nombre del equipo<input name="name" required placeholder="Ej. Tractor John Deere 6155M" /></label><label>Tipo<select name="kind" required defaultValue="Tractor"><option>Tractor</option><option>Trilladora</option><option>Cuatrimoto</option></select></label><label>Condición<select name="condition" defaultValue="Permanente"><option>Permanente</option><option>Temporal</option><option>Externo</option></select></label><label>Módulo ESP32<input name="module" placeholder="KT-MOD-0000" /></label><label>Vigencia temporal<input name="expiry" type="datetime-local" min={localDateTimeFromNow(0, 15)} /></label></div><div className="form-note"><span>i</span>Los módulos temporales se validan físicamente por Bluetooth antes de renovar su vigencia en un fundo.</div><div className="modal-actions"><button type="button" className="secondary-button" onClick={onCancel}>Cancelar</button><button className="primary-button" type="submit">Crear equipo</button></div></form>;
+  return <form onSubmit={submit}><ModalIntro eyebrow="Inventario" title="Crear equipo abastecible" detail="El equipo quedará disponible para asociarlo con operadores activos." /><div className="form-grid"><label className="full">Nombre del equipo<input name="name" required placeholder="Ej. Tractor John Deere 6155M" /></label><label>Tipo<select name="kind" required defaultValue="Tractor"><option>Tractor</option><option>Trilladora</option><option>Camión</option><option>Camioneta</option><option>Otro</option></select></label><label>Condición<select name="condition" defaultValue="Permanente"><option>Permanente</option><option>Temporal</option><option>Externo</option></select></label><label>Módulo ESP32<input name="module" placeholder="KT-MOD-0000" /></label><label>Vigencia temporal<input name="expiry" type="datetime-local" min={localDateTimeFromNow(0, 15)} /></label></div><div className="form-note"><span>i</span>Los módulos temporales se validan físicamente por Bluetooth antes de renovar su vigencia en un fundo.</div><div className="modal-actions"><button type="button" className="secondary-button" onClick={onCancel}>Cancelar</button><button className="primary-button" type="submit">Crear equipo</button></div></form>;
 }
 
 function AssociationForm({ operators, equipment, onSubmit, onCancel }: { operators: Operator[]; equipment: Equipment[]; onSubmit: (item: Association) => void; onCancel: () => void }) {
@@ -1719,10 +2399,13 @@ function AssociationForm({ operators, equipment, onSubmit, onCancel }: { operato
   return <form onSubmit={submit}><ModalIntro eyebrow="Autorización local" title="Nueva asociación" detail="Vincula un operador habilitado con un equipo disponible." /><div className="association-form"><label>Operador<select name="operator" required>{operators.filter((item) => item.active).map((item) => <option value={item.id} key={item.id}>{item.name} · {item.credential}</option>)}</select></label><div className="association-form-link">↕</div><label>Equipo<select name="equipment" required>{equipment.filter((item) => item.active).map((item) => <option value={item.id} key={item.id}>{item.name}</option>)}</select></label></div><div className="form-note success"><span>✓</span>La asociación entrará en vigencia inmediatamente y quedará registrada en la auditoría local.</div><div className="modal-actions"><button type="button" className="secondary-button" onClick={onCancel}>Cancelar</button><button className="primary-button" type="submit">Crear asociación</button></div></form>;
 }
 
-function AlertDetail({ alert, userName, canManage, onSubmit }: { alert: AlertItem; userName: string; canManage: boolean; onSubmit: (update: { description: string; status: AlertStatus; priority: AlertPriority }) => Promise<void> }) {
+function AlertDetail({ alert, previousAlert, reopenedAlert, userName, canManage, onSubmit, onReopen, onOpenRelated }: { alert: AlertItem; previousAlert?: AlertItem; reopenedAlert?: AlertItem; userName: string; canManage: boolean; onSubmit: (update: { description: string; status: AlertStatus; priority: AlertPriority }) => Promise<void>; onReopen: (update: { reason: string; priority: AlertPriority }) => Promise<void>; onOpenRelated: (alertId: string) => void }) {
   const [status, setStatus] = useState<AlertStatus>(alert.status);
   const [priority, setPriority] = useState<AlertPriority>(alert.priority);
+  const [reopenPriority, setReopenPriority] = useState<AlertPriority>(alert.priority);
+  const [showReopenForm, setShowReopenForm] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const [reopening, setReopening] = useState(false);
   const [error, setError] = useState("");
   const submit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -1740,12 +2423,31 @@ function AlertDetail({ alert, userName, canManage, onSubmit }: { alert: AlertIte
       setSubmitting(false);
     }
   };
+  const submitReopening = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const reason = String(new FormData(event.currentTarget).get("reason")).trim();
+    if (reason.length < 10) return;
+    setReopening(true); setError("");
+    try { await onReopen({ reason, priority: reopenPriority }); }
+    catch (caught) {
+      setError(caught instanceof Error ? caught.message : "No fue posible reabrir la alerta.");
+      setReopening(false);
+    }
+  };
   return <div className="alert-detail">
-    <ModalIntro eyebrow="Seguimiento de alerta" title={alert.title} detail="Revisa la criticidad, registra avances y resuelve la alerta sólo cuando el trabajo haya terminado." />
-    <div className="alert-detail-summary"><span className={`alert-priority-mark ${alert.priority}`} aria-hidden="true">{alert.priority === "urgent" ? "!" : alert.priority === "high" ? "↑" : alert.priority === "medium" ? "•" : "↓"}</span><div><div><span className={`priority-badge ${alert.priority}`}>{alertPriorityCopy[alert.priority]}</span><span className={`alert-status-badge ${alert.status}`}>{alertStatusCopy[alert.status]}</span></div><p>{alert.detail}</p><time>{formatAlertDate(alert.time)}</time></div></div>
-    <section className="alert-comment-history"><div className="alert-history-heading"><h3>Historial de comentarios</h3><span>{alert.comments?.length ?? 0} registros</span></div>{canManage ? (alert.comments?.length ? <ol>{alert.comments.map((entry) => <li key={entry.id}><span className={`comment-dot ${entry.statusAfter}`} /><div><div><strong>{entry.actor}</strong><time>{formatAlertDate(entry.recordedAt)}</time></div><p>{entry.comment}</p><small>{alertStatusCopy[entry.statusAfter]} · Prioridad {alertPriorityCopy[entry.priorityAfter]}</small></div></li>)}</ol> : <div className="alert-history-empty">Aún no hay comentarios. Registra la primera revisión debajo.</div>) : <div className="alert-history-empty protected">El historial está disponible para el administrador principal y los encargados autorizados.</div>}</section>
+    <ModalIntro eyebrow={alert.reopenNumber > 0 ? `Alerta reabierta · ciclo ${alert.reopenNumber}` : "Seguimiento de alerta"} title={alert.title} detail="Revisa la criticidad, registra avances y resuelve la alerta sólo cuando el trabajo haya terminado." />
+    <div className="alert-detail-summary"><span className={`alert-priority-mark ${alert.priority}`} aria-hidden="true">{alert.priority === "urgent" ? "!" : alert.priority === "high" ? "↑" : alert.priority === "medium" ? "•" : "↓"}</span><div><div>{alert.reopenNumber > 0 && <span className="alert-reopened-badge">Reabierta · ciclo {alert.reopenNumber}</span>}<span className={`priority-badge ${alert.priority}`}>{alertPriorityCopy[alert.priority]}</span><span className={`alert-status-badge ${alert.status}`}>{alertStatusCopy[alert.status]}</span></div><p>{alert.detail}</p><time>Inicio de este ciclo: {formatAlertDate(alert.time)}</time></div></div>
+    {(alert.parentAlertId || alert.reopenedAsAlertId) && <section className="alert-cycle-links" aria-label="Relación entre ciclos de la alerta">
+      {alert.parentAlertId && <div><span>←</span><p><strong>Ciclo anterior cerrado</strong><small>Este cierre conserva sus métricas y SLA originales.</small></p><button type="button" className="secondary-button small" onClick={() => onOpenRelated(alert.parentAlertId!)}>Ver anterior{previousAlert ? ` · ${alertStatusCopy[previousAlert.status]}` : ""}</button></div>}
+      {alert.reopenedAsAlertId && <div><span>→</span><p><strong>Reabierta en un ciclo posterior</strong><small>La atención continúa como una alerta independiente.</small></p><button type="button" className="secondary-button small" onClick={() => onOpenRelated(alert.reopenedAsAlertId!)}>Ver reapertura{reopenedAlert ? ` · ciclo ${reopenedAlert.reopenNumber}` : ""}</button></div>}
+    </section>}
+    <section className="alert-comment-history"><div className="alert-history-heading"><h3>Historial de comentarios</h3><span>{alert.comments?.length ?? 0} {(alert.comments?.length ?? 0) === 1 ? "registro" : "registros"}</span></div>{canManage ? (alert.comments?.length ? <ol>{alert.comments.map((entry) => <li key={entry.id}><span className={`comment-dot ${entry.statusAfter}`} /><div><div><strong>{entry.actor}</strong><time>{formatAlertDate(entry.recordedAt)}</time></div><p>{entry.comment}</p><small>{entry.eventType === "reopened" ? "Motivo de reapertura" : alertStatusCopy[entry.statusAfter]} · Prioridad {alertPriorityCopy[entry.priorityAfter]}</small></div></li>)}</ol> : <div className="alert-history-empty">Aún no hay comentarios. Registra la primera revisión debajo.</div>) : <div className="alert-history-empty protected">El historial está disponible para el administrador principal y los encargados autorizados.</div>}</section>
     {canManage && alert.status !== "resolved" && <form className="alert-follow-up-form" onSubmit={submit}><div className="form-grid"><label>Estado al guardar<select name="status" value={status} onChange={(event) => setStatus(event.target.value as AlertStatus)}><option value="pending">Pendiente</option><option value="in_progress">Tomando acción</option><option value="resolved">Resuelta</option></select></label><label>Criticidad<select name="priority" value={priority} onChange={(event) => setPriority(event.target.value as AlertPriority)}><option value="urgent">Urgente</option><option value="high">Alta</option><option value="medium">Media</option><option value="low">Baja</option></select></label><label className="full">Comentario de seguimiento<textarea name="comment" required minLength={10} maxLength={500} rows={4} placeholder="Describe qué se revisó, qué acción está en curso o cómo se resolvió…" /></label><label className="full">Responsable<input value={userName} readOnly /></label></div>{status === "resolved" ? <div className="form-note warning"><span>!</span>Al guardar como resuelta, la alerta se cerrará definitivamente.</div> : <div className="form-note"><span>i</span>La alerta seguirá abierta y podrás agregar nuevos comentarios más adelante.</div>}{error && <div className="auth-error" role="alert"><span>!</span>{error}</div>}<div className="modal-actions"><button className="primary-button" type="submit" disabled={submitting}>{submitting ? "Guardando…" : status === "resolved" ? "Guardar comentario y resolver" : "Guardar seguimiento"}</button></div></form>}
-    {canManage && alert.status === "resolved" && <div className="alert-resolved-note"><span>✓</span><div><strong>Alerta resuelta</strong><p>El cierre y todos sus comentarios permanecen disponibles para auditoría.</p></div></div>}
+    {canManage && alert.status === "resolved" && <><div className="alert-resolved-note"><span>✓</span><div><strong>Alerta resuelta</strong><p>El cierre, su criticidad y sus tiempos permanecen disponibles para auditoría y SLA.</p></div></div>
+      {!alert.reopenedAsAlertId && !showReopenForm && <div className="alert-reopen-action"><p>Si la condición volvió a presentarse, inicia un ciclo independiente sin modificar este cierre.</p><button type="button" className="secondary-button" onClick={() => { setShowReopenForm(true); setError(""); }}>Reabrir como nueva alerta</button></div>}
+      {alert.reopenedAsAlertId && <div className="form-note"><span>i</span>Esta alerta ya fue reabierta. Continúa el seguimiento desde el ciclo enlazado.</div>}
+      {!alert.reopenedAsAlertId && showReopenForm && <form className="alert-reopen-form" onSubmit={submitReopening}><div className="form-grid"><label>Criticidad del nuevo ciclo<select name="reopenPriority" value={reopenPriority} onChange={(event) => setReopenPriority(event.target.value as AlertPriority)}><option value="urgent">Urgente</option><option value="high">Alta</option><option value="medium">Media</option><option value="low">Baja</option></select></label><label className="full">Motivo de reapertura<textarea name="reason" required minLength={10} maxLength={500} rows={4} placeholder="Describe qué volvió a ocurrir o qué evidencia nueva requiere atención…" /></label><label className="full">Responsable de la reapertura<input value={userName} readOnly /></label></div><div className="form-note warning"><span>!</span>Se creará una alerta nueva en estado Pendiente. Este cierre y sus métricas no cambiarán.</div>{error && <div className="auth-error" role="alert"><span>!</span>{error}</div>}<div className="modal-actions"><button type="button" className="secondary-button" disabled={reopening} onClick={() => { setShowReopenForm(false); setError(""); }}>Cancelar</button><button className="primary-button" type="submit" disabled={reopening}>{reopening ? "Creando nuevo ciclo…" : "Confirmar reapertura"}</button></div></form>}
+    </>}
   </div>;
 }
 

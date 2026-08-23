@@ -1,6 +1,7 @@
 export const ALL_PERMISSIONS = [
   "view_dashboard",
   "view_transactions",
+  "manage_receipts",
   "manage_alerts",
   "manage_operators",
   "manage_equipment",
@@ -71,6 +72,7 @@ export function rolePermissions(role: UserRole): Permission[] {
     return [
       "view_dashboard",
       "view_transactions",
+      "manage_receipts",
       "manage_alerts",
       "manage_operators",
       "manage_equipment",
@@ -124,10 +126,15 @@ export async function ensureUserStore(env: UserStoreEnvironment) {
         occurred_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
         metadata TEXT NOT NULL DEFAULT '{}'
       )`),
+          env.DB!.prepare(`CREATE TABLE IF NOT EXISTS web_access_meta (
+        key TEXT PRIMARY KEY,
+        value TEXT NOT NULL
+      )`),
           env.DB!.prepare("CREATE INDEX IF NOT EXISTS idx_web_access_audit_occurred_at ON web_access_audit(occurred_at)"),
         ]);
         await env.DB!.prepare("PRAGMA optimize").run();
         await bootstrapMaster(env);
+        await migrateReceiptPermission(env.DB!);
         initialized.add(marker);
       })().finally(() => initializing.delete(marker));
       initializing.set(marker, pending);
@@ -135,6 +142,28 @@ export async function ensureUserStore(env: UserStoreEnvironment) {
     await pending;
   }
   return true;
+}
+
+async function migrateReceiptPermission(db: D1DatabaseLike) {
+  const key = "receipt_approval_permission_v1";
+  if (await db.prepare("SELECT value FROM web_access_meta WHERE key=?").bind(key).first<{ value: string }>()) return;
+  const users = await db.prepare("SELECT id,role,permissions,is_master FROM web_users").all<Pick<StoredUser, "id" | "role" | "permissions" | "is_master">>();
+  const statements: D1PreparedLike[] = [];
+  for (const user of users.results) {
+    const permissions = parsePermissions(user.permissions);
+    const eligible = user.is_master === 1
+      || user.role === "administrator" && permissions.includes("manage_system")
+      || user.role === "supervisor" && permissions.includes("manage_alerts");
+    if (!eligible || permissions.includes("manage_receipts")) continue;
+    const nextPermissions = [...permissions, "manage_receipts" as Permission];
+    statements.push(db.prepare("UPDATE web_users SET permissions=?,updated_at=CURRENT_TIMESTAMP WHERE id=?")
+      .bind(JSON.stringify(nextPermissions), user.id));
+    statements.push(db.prepare(`INSERT INTO web_access_audit(actor_user_id,event,target_user_id,metadata)
+      VALUES (NULL,'receipt_permission_migrated',?,?)`).bind(user.id, JSON.stringify({ permission: "manage_receipts" })));
+  }
+  statements.push(db.prepare("INSERT INTO web_access_meta(key,value) VALUES (?,?)")
+    .bind(key, JSON.stringify({ migratedAt: new Date().toISOString() })));
+  await db.batch(statements);
 }
 
 async function bootstrapMaster(env: UserStoreEnvironment) {

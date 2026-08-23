@@ -17,11 +17,13 @@ disponible sin Internet.
   El sistema mantiene una sola maestra activa y exige aprobación explícita para
   desactivar la anterior antes de abrir el enrolamiento de reemplazo.
 - Detección y enrolamiento cero-touch de módulos XIAO por BLE: se asignan nombre,
-  tipo (Tractor, Trilladora o Cuatrimoto) y vencimiento; el fundo proviene de la
+  tipo (Tractor, Trilladora, Camión, Camioneta u Otro) y vencimiento; el fundo proviene de la
   Raspberry que lo detecta.
 - Reasignación entre fundos sin reflashear: al vencer se bloquea una carga normal
   y el módulo se renueva físicamente por BLE con una nueva vigencia auditable.
-- Alertas con log de acciones, perfiles de acceso, infraestructura y respaldos.
+- Alertas con log de acciones, criticidad operacional y reaperturas auditables.
+  Cada reapertura crea un ciclo nuevo, conserva el cierre anterior para SLA y
+  mantiene un tag visible durante toda su atención.
 - Inicio y cierre de sesión con cuenta maestra, cookie privada y bloqueo de intentos.
 - Enrolamiento de usuarios con roles, permisos efectivos y claves temporales.
 - Recuperación maestra con código offline y reprovisión física de emergencia.
@@ -92,8 +94,9 @@ HTTPS en la red local o VPN y no directamente hacia Internet.
 
 El adaptador local del sensor OCIO registra lecturas mediante
 `POST /api/fuel-history/readings`, autenticado con `FUEL_SENSOR_INGEST_KEY` en
-la cabecera `x-edge-sensor-key`. El detector ignora oscilaciones pequeñas y
-registra una recepción automática cuando el aumento acumulado alcanza 40 L.
+la cabecera `x-edge-sensor-key`. El detector ignora oscilaciones pequeñas y sólo
+registra una recepción automática cuando el aumento sostenido alcanza 100 L.
+La confianza puede redondear a 99 % únicamente desde 120 L.
 Mientras el nivel continúa subiendo, consolida el mismo evento y conserva el
 nivel inicial, el nivel final y la confianza de la detección.
 
