@@ -1,0 +1,15 @@
+# Genera estos valores con tools/provision_web_auth.py. Nunca guardes aquí la clave original.
+AUTH_ADMIN_EMAIL_DIGEST=base64url-hmac-del-correo
+AUTH_ADMIN_PASSWORD_HASH=pbkdf2_sha256$600000$sal-base64url$hash-base64url
+AUTH_EMAIL_PEPPER=secreto-base64url
+AUTH_SESSION_SECRET=secreto-base64url
+AUTH_DATA_KEY=clave-aes-base64url
+AUTH_RECOVERY_PEPPER=secreto-base64url
+AUTH_ADMIN_RECOVERY_DIGEST=base64url-hmac-del-codigo
+AUTH_BOOTSTRAP_VERSION=identificador-aleatorio-de-rotacion
+AUTH_SESSION_TTL_SECONDS=28800
+# Secreto independiente usado sólo por el adaptador OCIO para ingresar lecturas de nivel.
+FUEL_SENSOR_INGEST_KEY=secreto-aleatorio-de-al-menos-32-bytes
+# Mantener en false en producción. Sólo habilita datos ficticios para una demostración vacía.
+FUEL_HISTORY_DEMO_SEED=false
+APP_DEMO_SEED=false
