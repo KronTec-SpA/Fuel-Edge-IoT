@@ -150,6 +150,13 @@ test("la adopción avanza por etapas y habilita sesiones asistidas auditables", 
     }), env, executionContext);
     assert.equal(changeDuringSession.status, 409);
 
+    const deactivateDuringSession = await worker.fetch(new Request("http://localhost/api/technology-adoption/deactivate", {
+      method: "POST",
+      headers: actorHeaders,
+      body: "{}",
+    }), env, executionContext);
+    assert.equal(deactivateDuringSession.status, 409);
+
     const audits = await database.prepare(`SELECT event FROM web_access_audit
       WHERE event LIKE 'technology_adoption_%'
       ORDER BY id`).all();
@@ -159,6 +166,82 @@ test("la adopción avanza por etapas y habilita sesiones asistidas auditables", 
       "technology_adoption_stage_changed",
       "technology_adoption_assisted_session_scheduled",
     ]);
+  } finally {
+    delete globalThis.__FUEL_EDGE_LOCAL_DB__;
+    database.close();
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("un inicio accidental puede desactivarse y restaura la política completa", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "fuel-adoption-deactivate-"));
+  const database = createLocalD1(join(directory, "web.sqlite3"));
+  globalThis.__FUEL_EDGE_LOCAL_DB__ = database;
+  try {
+    const worker = await loadWorker();
+    const env = authEnv("master@example.test", "correct horse battery staple");
+    const login = await worker.fetch(new Request("http://localhost/api/auth/login", {
+      method: "POST",
+      headers: { "content-type": "application/json", origin: "http://localhost" },
+      body: JSON.stringify({ email: "master@example.test", password: "correct horse battery staple" }),
+    }), env, executionContext);
+    assert.equal(login.status, 200);
+    const cookie = (login.headers.get("set-cookie") ?? "").split(";", 1)[0];
+    const actorHeaders = { cookie, origin: "http://localhost", "content-type": "application/json" };
+    const edgeHeaders = { "content-type": "application/json", "x-edge-sensor-key": env.FUEL_SENSOR_INGEST_KEY };
+
+    const started = await worker.fetch(new Request("http://localhost/api/technology-adoption/start", {
+      method: "POST", headers: actorHeaders, body: "{}",
+    }), env, executionContext);
+    assert.equal(started.status, 201);
+    assert.equal((await started.json()).settings.stage, "assisted");
+
+    const master = await database.prepare("SELECT permissions FROM web_users WHERE id=?")
+      .bind("usr-master").first();
+    await database.prepare("UPDATE web_users SET permissions=? WHERE id=?")
+      .bind(JSON.stringify(["view_dashboard"]), "usr-master").run();
+    const forbidden = await worker.fetch(new Request("http://localhost/api/technology-adoption/deactivate", {
+      method: "POST", headers: actorHeaders, body: "{}",
+    }), env, executionContext);
+    assert.equal(forbidden.status, 403);
+    await database.prepare("UPDATE web_users SET permissions=? WHERE id=?")
+      .bind(master.permissions, "usr-master").run();
+
+    const deactivated = await worker.fetch(new Request("http://localhost/api/technology-adoption/deactivate", {
+      method: "POST", headers: actorHeaders, body: "{}",
+    }), env, executionContext);
+    assert.equal(deactivated.status, 200);
+    const settings = (await deactivated.json()).settings;
+    assert.equal(settings.programStatus, "inactive");
+    assert.equal(settings.stage, "full");
+    assert.equal(settings.revision, 3);
+    assert.equal(settings.completedAt, null);
+    assert.match(settings.note, /restaura la trazabilidad completa/i);
+
+    const edgePolicy = await worker.fetch(new Request("http://localhost/api/technology-adoption/edge/current", {
+      method: "POST", headers: edgeHeaders, body: "{}",
+    }), env, executionContext);
+    assert.equal(edgePolicy.status, 200);
+    const policy = (await edgePolicy.json()).policy;
+    assert.equal(policy.stage, "full");
+    assert.equal(policy.revision, 3);
+
+    const audits = await database.prepare(`SELECT event FROM web_access_audit
+      WHERE event LIKE 'technology_adoption_%'
+      ORDER BY id`).all();
+    assert.deepEqual(audits.results.map((row) => row.event), [
+      "technology_adoption_started",
+      "technology_adoption_deactivated",
+    ]);
+
+    const restarted = await worker.fetch(new Request("http://localhost/api/technology-adoption/start", {
+      method: "POST", headers: actorHeaders, body: "{}",
+    }), env, executionContext);
+    assert.equal(restarted.status, 201);
+    const restartedSettings = (await restarted.json()).settings;
+    assert.equal(restartedSettings.programStatus, "active");
+    assert.equal(restartedSettings.stage, "assisted");
+    assert.equal(restartedSettings.revision, 4);
   } finally {
     delete globalThis.__FUEL_EDGE_LOCAL_DB__;
     database.close();

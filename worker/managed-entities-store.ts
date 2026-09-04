@@ -107,9 +107,9 @@ async function seedManagedEntities(db: D1DatabaseLike) {
   const seeded = await db.prepare("SELECT value FROM managed_store_meta WHERE key='seed_version'").first<{ value: string }>();
   if (seeded) return;
   const operators = [
-    ["op-01", "Carlos Muñoz", "15.842.611-7", "NFC-0421", 1, "Hoy, 09:44"],
-    ["op-02", "Daniela Rojas", "17.208.493-2", "NFC-0422", 1, "Hoy, 08:16"],
-    ["op-03", "Mauricio Salas", "13.774.850-5", "NFC-0424", 1, "Ayer, 17:32"],
+    ["op-01", "Carlos Muñoz", "15.842.611-7", "RFID-0421", 1, "Hoy, 09:44"],
+    ["op-02", "Daniela Rojas", "17.208.493-2", "RFID-0422", 1, "Hoy, 08:16"],
+    ["op-03", "Mauricio Salas", "13.774.850-5", "RFID-0424", 1, "Ayer, 17:32"],
     ["op-04", "Rodrigo Araya", "16.441.272-1", "Sin enrolar", 0, "Sin actividad"],
   ];
   const equipment = [

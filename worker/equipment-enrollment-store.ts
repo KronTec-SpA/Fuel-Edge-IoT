@@ -98,6 +98,12 @@ export async function ensureEquipmentEnrollmentStore(db: D1DatabaseLike) {
         )`),
       ]);
       await ensureEnrollmentCommandColumns(db);
+      // Las eliminaciones de equipos retiran sólo su asignación operacional.
+      // La credencial de fábrica debe permanecer para que el mismo MIM pueda
+      // autenticarse y volver a enrolarse después de un reset físico.
+      await db.prepare(`UPDATE equipment_registry_removals SET
+        status='completed',error=NULL,completed_at=COALESCE(completed_at,CURRENT_TIMESTAMP),
+        updated_at=CURRENT_TIMESTAMP WHERE status IN ('pending','processing')`).run();
       await db.batch([
         db.prepare("CREATE INDEX IF NOT EXISTS idx_equipment_enrollment_commands_status_module ON equipment_enrollment_commands(status,module_id,requested_at)"),
         db.prepare("CREATE UNIQUE INDEX IF NOT EXISTS idx_equipment_enrollment_commands_active ON equipment_enrollment_commands(module_id) WHERE status IN ('pending','enrolling')"),
@@ -259,7 +265,7 @@ export async function completeEquipmentScan(db: D1DatabaseLike, scanId: string, 
     .bind(scanId).first<{ id: string }>();
   if (!scan) throw new EnrollmentConflict("La búsqueda de MIM solicitada no existe.");
   const status = result.success ? "completed" : "failed";
-  const error = result.success ? null : (result.error ?? "La Raspberry no pudo completar la búsqueda de MIM").slice(0, 240);
+  const error = result.success ? null : (result.error ?? "El PLC no pudo completar la búsqueda de MIM").slice(0, 240);
   await db.prepare(`UPDATE equipment_scan_requests SET status=?,discovered=?,verified=?,error=?,
       completed_at=CURRENT_TIMESTAMP,updated_at=CURRENT_TIMESTAMP WHERE id=?`)
     .bind(status, result.discovered, result.verified, error, scanId).run();
@@ -318,7 +324,7 @@ export async function completeEquipmentRegistryRemoval(
     return { completed: true };
   }
   await db.prepare(`UPDATE equipment_registry_removals SET status='pending',error=?,updated_at=CURRENT_TIMESTAMP WHERE id=?`)
-    .bind((result.error ?? "La Raspberry no pudo quitar el MIM del identificador.").slice(0, 240), commandId).run();
+    .bind((result.error ?? "El PLC no pudo quitar el MIM del identificador.").slice(0, 240), commandId).run();
   return { completed: false };
 }
 
@@ -332,7 +338,7 @@ export async function requestEquipmentEnrollment(db: D1DatabaseLike, moduleId: s
   const candidate = await db.prepare(`SELECT module_id AS moduleId,site_id AS siteId,claimed,last_seen AS lastSeen
     FROM equipment_enrollment_candidates WHERE module_id=?`).bind(moduleId)
     .first<{ moduleId: string; siteId: string; claimed: number; lastSeen: string }>();
-  if (!candidate) throw new EnrollmentConflict("El módulo aún no ha sido detectado por esta Raspberry.");
+  if (!candidate) throw new EnrollmentConflict("El módulo aún no ha sido detectado por este PLC.");
   if (Date.now() - new Date(candidate.lastSeen).getTime() > 120_000) {
     throw new EnrollmentConflict("El módulo dejó de reportarse por Wi-Fi. Energízalo nuevamente.");
   }

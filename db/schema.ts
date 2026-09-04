@@ -140,6 +140,33 @@ export const validatorBluetoothObservations = sqliteTable("validator_bluetooth_o
   index("idx_validator_bluetooth_observations_site_time").on(table.siteId, table.observedAt),
 ]);
 
+export const siteCommissioning = sqliteTable("site_commissioning", {
+  siteId: text("site_id").primaryKey(),
+  status: text("status").notNull().default("in_progress"),
+  cycle: integer("cycle").notNull().default(1),
+  startedAt: text("started_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+  completedAt: text("completed_at"),
+  completedBy: text("completed_by"),
+  reopenedAt: text("reopened_at"),
+  reopenedBy: text("reopened_by"),
+  reopenReason: text("reopen_reason"),
+  updatedAt: text("updated_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+});
+
+export const powerSupplyEvents = sqliteTable("power_supply_events", {
+  id: text("id").primaryKey(),
+  siteId: text("site_id").notNull(),
+  lostAt: text("lost_at").notNull(),
+  restoredAt: text("restored_at").notNull(),
+  durationSeconds: integer("duration_seconds").notNull(),
+  source: text("source").notNull(),
+  lossBootId: text("loss_boot_id"),
+  restoreBootId: text("restore_boot_id"),
+  recordedAt: text("recorded_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+}, (table) => [
+  index("idx_power_supply_events_site_lost").on(table.siteId, table.lostAt),
+]);
+
 export const equipmentEnrollmentCandidates = sqliteTable("equipment_enrollment_candidates", {
   moduleId: text("module_id").primaryKey(),
   siteId: text("site_id").notNull(),
@@ -220,6 +247,8 @@ export const fuelMovements = sqliteTable("fuel_movements", {
   closingLevelLiters: real("closing_level_liters").notNull(),
   source: text("source").notNull(),
   referenceId: text("reference_id").notNull(),
+  legacyId: text("legacy_id"),
+  manualModeSessionId: text("manual_mode_session_id"),
   detail: text("detail").notNull().default(""),
   operatorId: text("operator_id"),
   equipmentId: text("equipment_id"),
@@ -243,6 +272,7 @@ export const fuelMovements = sqliteTable("fuel_movements", {
   index("idx_fuel_movements_occurred").on(table.occurredAt),
   index("idx_fuel_movements_type_occurred").on(table.movementType, table.occurredAt),
   index("idx_fuel_movements_receipt_review").on(table.movementType, table.reviewStatus, table.occurredAt),
+  uniqueIndex("idx_fuel_movements_legacy_id").on(table.legacyId).where(sql`legacy_id IS NOT NULL`),
 ]);
 
 export const fuelReceiptReviews = sqliteTable("fuel_receipt_reviews", {
@@ -330,6 +360,7 @@ export const fuelDetectionState = sqliteTable("fuel_detection_state", {
   activeReceiptId: text("active_receipt_id"),
   activeStartedAt: text("active_started_at"),
   baselineStartedAt: text("baseline_started_at").notNull().default("1970-01-01T00:00:00.000Z"),
+  warmupStartedAt: text("warmup_started_at"),
   telemetrySessionId: text("telemetry_session_id"),
   lastReadingAt: text("last_reading_at").notNull(),
 });

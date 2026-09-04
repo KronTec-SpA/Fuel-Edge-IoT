@@ -3,11 +3,13 @@ import { createManualFuelReceipt, edgeRuntimeStatus, ensureFuelHistoryStore, fue
 import { ensureManagedEntityStore } from "./managed-entities-store";
 import { parsePermissions } from "./user-store";
 import { readJsonBody, RequestBodyError } from "./request-body";
+import { getCommissioningState } from "./system-settings-store";
 
 interface FuelHistoryEnvironment extends AuthEnvironment {
   FUEL_SENSOR_INGEST_KEY?: string;
   FUEL_HISTORY_DEMO_SEED?: string;
   APP_DEMO_SEED?: string;
+  FUEL_SITE_ID?: string;
 }
 
 const FUEL_HISTORY_TIME_ZONE = "America/Santiago";
@@ -64,7 +66,7 @@ export async function handleFuelHistoryRequest(request: Request, env: FuelHistor
       pendingReceipts,
       summary: {
         receivedLiters, dispatchedLiters, pumpEnablementLiters,
-        netLiters: round1(receivedLiters - dispatchedLiters - pumpEnablementLiters),
+        netLiters: round1(receivedLiters - dispatchedLiters),
         movementCount: movements.filter((item) => item.reviewStatus !== "pending" && item.reviewStatus !== "rejected").length,
         pendingReceiptCount: pendingReceipts.length,
       },
@@ -116,8 +118,14 @@ export async function handleFuelHistoryRequest(request: Request, env: FuelHistor
     const confirmation = await confirmAdministratorPassword(request, env, body.password);
     if ("response" in confirmation) return confirmation.response;
     const actor = confirmation.user;
-    if (!parsePermissions(actor.permissions).includes("manage_system")) {
-      return json({ error: "No tienes permiso para reiniciar la base de carga y nivel." }, 403);
+    if (actor.role !== "master" || actor.is_master !== 1
+      || !parsePermissions(actor.permissions).includes("manage_system")) {
+      return json({ error: "Sólo el usuario maestro del proveedor puede reiniciar la base de carga y nivel." }, 403);
+    }
+    const siteId = env.FUEL_SITE_ID?.trim() || "concha-y-toro-piloto";
+    const commissioning = await getCommissioningState(env.DB, siteId);
+    if (commissioning.status === "completed") {
+      return json({ error: "La puesta en marcha está finalizada. Reábrela antes de habilitar un nuevo reinicio." }, 409);
     }
     const result = await resetFuelHistoryStore(env.DB, actor.id);
     return json({ reset: true, ...result, sensor: await fuelSensorState(env.DB) }, 200);

@@ -76,7 +76,7 @@ test("a K24 dispatch does not turn the next unchanged OCIO reading into a receip
   }
 });
 
-test("a sub-tenth pump enablement is stored separately from a classic dispatch", async () => {
+test("a sub-0.12 L pump enablement is stored separately from a classic dispatch", async () => {
   const directory = await mkdtemp(join(tmpdir(), "fuel-pump-enablement-"));
   const database = createLocalD1(join(directory, "web.sqlite3"));
   globalThis.__FUEL_EDGE_LOCAL_DB__ = database;
@@ -90,27 +90,27 @@ test("a sub-tenth pump enablement is stored separately from a classic dispatch",
       type: "dispatch",
       classification: "pump_enablement",
       occurredAt,
-      liters: 0.09,
+      liters: 0.11,
       source: "K24 + PLC · Habilitación de bomba",
       reference: "pump-enablement-001",
-      detail: "Habilitación de bomba · Menos de 0,1 L sin flujo posterior",
+      detail: "Habilitación de bomba · Menos de 0,12 L sin flujo posterior",
     });
 
     assert.equal(response.status, 201);
     assert.equal((await response.json()).movement.classification, "pump_enablement");
     assert.deepEqual(
       await database.prepare("SELECT classification,liters FROM fuel_movements WHERE id='pump-enablement-001'").first(),
-      { classification: "pump_enablement", liters: 0.09 },
+      { classification: "pump_enablement", liters: 0.11 },
     );
     const duplicate = await post(worker, env, "/api/fuel-history/movements", {
       id: "pump-enablement-001",
       type: "dispatch",
       classification: "pump_enablement",
       occurredAt,
-      liters: 0.09,
+      liters: 0.11,
       source: "K24 + PLC · Habilitación de bomba",
       reference: "pump-enablement-001",
-      detail: "Habilitación de bomba · Menos de 0,1 L sin flujo posterior",
+      detail: "Habilitación de bomba · Menos de 0,12 L sin flujo posterior",
     });
     assert.equal(duplicate.status, 200);
     assert.equal((await duplicate.json()).created, false);
@@ -120,13 +120,84 @@ test("a sub-tenth pump enablement is stored separately from a classic dispatch",
       type: "dispatch",
       classification: "pump_enablement",
       occurredAt,
-      liters: 0.1,
+      liters: 0.12,
       source: "K24 + PLC",
       reference: "pump-enablement-too-large",
       detail: "No debe aceptarse como habilitación",
     });
     assert.equal(rejected.status, 400);
-    assert.match((await rejected.json()).error, /menos de 0,1 L/i);
+    assert.match((await rejected.json()).error, /menos de 0,12 L/i);
+  } finally {
+    delete globalThis.__FUEL_EDGE_LOCAL_DB__;
+    database.close();
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("startup retroactively normalizes manual load IDs and recategorizes legacy enablements", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "fuel-manual-identity-migration-"));
+  const databasePath = join(directory, "web.sqlite3");
+  let database = createLocalD1(databasePath);
+  globalThis.__FUEL_EDGE_LOCAL_DB__ = database;
+  try {
+    const worker = await loadWorker();
+    const env = { FUEL_SENSOR_INGEST_KEY: sensorKey };
+    const initial = await post(worker, env, "/api/fuel-history/movements", {
+      id: "migration-bootstrap",
+      type: "dispatch",
+      occurredAt: new Date(Date.now() - 60_000).toISOString(),
+      liters: 1,
+      source: "K24 + PLC",
+      reference: "migration-bootstrap",
+      detail: "Inicializa el esquema de prueba",
+    });
+    assert.equal(initial.status, 201);
+    await database.batch([
+      database.prepare("DELETE FROM fuel_movements"),
+      database.prepare("DELETE FROM fuel_history_meta WHERE key IN ('manual_movement_identity_v1','pump_enablement_classification_v3_under_0_12')"),
+      database.prepare(`INSERT INTO fuel_movements(
+        id,movement_type,classification,occurred_at,liters,opening_level_liters,closing_level_liters,
+        source,reference_id,detail,detected_automatically,confidence,detection_status
+      ) VALUES (?,?,?,?,?,?,?,?,?,?,0,1,'confirmed')`).bind(
+        "manual-segment-bbc8b607-dd88-4785-a5c1-d638cd0fb851", "dispatch", "standard",
+        new Date(Date.now() - 50_000).toISOString(), 46.15, 1000, 953.9,
+        "K24 + PLC · Modo manual", "manual-mode-bbc8b607-dd88-4785-a5c1-d638cd0fb851",
+        "operator-01 · Consumo imputado por tag · Modo manual",
+      ),
+      database.prepare(`INSERT INTO fuel_movements(
+        id,movement_type,classification,occurred_at,liters,opening_level_liters,closing_level_liters,
+        source,reference_id,detail,detected_automatically,confidence,detection_status
+      ) VALUES (?,?,?,?,?,?,?,?,?,?,0,1,'confirmed')`).bind(
+        "legacy-enable-01", "dispatch", "standard", new Date(Date.now() - 40_000).toISOString(),
+        0.1, 953.9, 953.8, "K24 + PLC", "legacy-enable-01",
+        "Carga histórica sin categoría de habilitación",
+      ),
+    ]);
+    database.close();
+    database = createLocalD1(databasePath);
+    globalThis.__FUEL_EDGE_LOCAL_DB__ = database;
+
+    const trigger = await post(worker, env, "/api/fuel-history/movements", {
+      id: "migration-trigger",
+      type: "dispatch",
+      occurredAt: new Date(Date.now() - 30_000).toISOString(),
+      liters: 2,
+      source: "K24 + PLC",
+      reference: "migration-trigger",
+      detail: "Ejecuta las migraciones de inicio",
+    });
+    assert.equal(trigger.status, 201);
+
+    assert.deepEqual(await database.prepare(`SELECT id,reference_id AS reference,legacy_id AS legacyId,
+      manual_mode_session_id AS manualModeSessionId FROM fuel_movements WHERE legacy_id IS NOT NULL`).first(), {
+      id: "bbc8b607-dd88-4785-a5c1-d638cd0fb851",
+      reference: "bbc8b607-dd88-4785-a5c1-d638cd0fb851",
+      legacyId: "manual-segment-bbc8b607-dd88-4785-a5c1-d638cd0fb851",
+      manualModeSessionId: "manual-mode-bbc8b607-dd88-4785-a5c1-d638cd0fb851",
+    });
+    assert.deepEqual(await database.prepare("SELECT classification FROM fuel_movements WHERE id='legacy-enable-01'").first(), {
+      classification: "pump_enablement",
+    });
   } finally {
     delete globalThis.__FUEL_EDGE_LOCAL_DB__;
     database.close();
@@ -404,6 +475,143 @@ test("99 L is ignored and a later 100 L sustained increase creates one confirmed
       type: "receipt", liters: 100, opening: 1000, closing: 1100, automatic: 1, status: "confirmed",
       reviewStatus: "pending", originalLiters: 100, confidence: 0.847,
     });
+  } finally {
+    delete globalThis.__FUEL_EDGE_LOCAL_DB__;
+    database.close();
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("a gradual fill keeps its anchored baseline and becomes one receipt", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "fuel-history-gradual-fill-"));
+  const database = createLocalD1(join(directory, "web.sqlite3"));
+  globalThis.__FUEL_EDGE_LOCAL_DB__ = database;
+  try {
+    const worker = await loadWorker();
+    const env = { FUEL_SENSOR_INGEST_KEY: sensorKey };
+    const start = Date.now() - 45 * 60_000;
+    const reading = (minute, levelLiters) => post(worker, env, "/api/fuel-history/readings", {
+      levelLiters,
+      occurredAt: new Date(start + minute * 60_000).toISOString(),
+      source: "PIUSI OCIO 4-20 mA",
+      telemetrySessionId: "gradual-fill-session",
+    });
+
+    for (let minute = 0; minute < 5; minute += 1) await reading(minute, 1000);
+    let detection = null;
+    for (let minute = 5; minute <= 19; minute += 1) {
+      detection = (await (await reading(minute, 1000 + (minute - 4) * 8)).json()).detection;
+    }
+    assert.equal(detection.status, "accumulating");
+    for (let minute = 20; minute <= 27; minute += 1) {
+      detection = (await (await reading(minute, 1120)).json()).detection;
+    }
+    assert.equal(detection.status, "confirmed");
+    assert.deepEqual(await database.prepare(`SELECT liters,opening_level_liters AS opening,
+      closing_level_liters AS closing FROM fuel_movements WHERE movement_type='receipt'`).first(), {
+      liters: 120, opening: 1000, closing: 1120,
+    });
+  } finally {
+    delete globalThis.__FUEL_EDGE_LOCAL_DB__;
+    database.close();
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("an active receipt candidate survives an edge status session change", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "fuel-history-active-restart-"));
+  const database = createLocalD1(join(directory, "web.sqlite3"));
+  globalThis.__FUEL_EDGE_LOCAL_DB__ = database;
+  try {
+    const worker = await loadWorker();
+    const env = { FUEL_SENSOR_INGEST_KEY: sensorKey };
+    const start = Date.now() - 30 * 60_000;
+    const reading = (minute, levelLiters, session) => post(worker, env, "/api/fuel-history/readings", {
+      levelLiters,
+      occurredAt: new Date(start + minute * 60_000).toISOString(),
+      source: "OCIO",
+      telemetrySessionId: session,
+    });
+
+    for (let minute = 0; minute < 5; minute += 1) await reading(minute, 1000, "before-restart");
+    assert.equal((await (await reading(5, 1120, "before-restart")).json()).detection.status, "started");
+    const status = await post(worker, env, "/api/fuel-history/status", {
+      moduleId: "rpi-01", siteId: "fundo-01", state: "locked", relayEnergized: false,
+      validatorOnline: true, nfcReady: true, k24Enabled: true, k24Healthy: true,
+      tankLevelEnabled: true, telemetrySessionId: "after-restart",
+      technologyAdoptionStage: "full", adoptionPolicyRevision: 1,
+      occurredAt: new Date(start + 6 * 60_000).toISOString(),
+    });
+    assert.equal(status.status, 200);
+    let detection = null;
+    for (let minute = 6; minute <= 15; minute += 1) {
+      detection = (await (await reading(minute, 1120, "after-restart")).json()).detection;
+    }
+    assert.equal(detection.status, "confirmed");
+    assert.equal((await database.prepare("SELECT COUNT(*) AS total FROM fuel_movements WHERE movement_type='receipt'").first()).total, 1);
+  } finally {
+    delete globalThis.__FUEL_EDGE_LOCAL_DB__;
+    database.close();
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("a resumed fill extends the same pending automatic receipt", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "fuel-history-receipt-continuation-"));
+  const database = createLocalD1(join(directory, "web.sqlite3"));
+  globalThis.__FUEL_EDGE_LOCAL_DB__ = database;
+  try {
+    const worker = await loadWorker();
+    const env = { FUEL_SENSOR_INGEST_KEY: sensorKey };
+    const start = Date.now() - 40 * 60_000;
+    const reading = (minute, levelLiters, session) => post(worker, env, "/api/fuel-history/readings", {
+      levelLiters,
+      occurredAt: new Date(start + minute * 60_000).toISOString(),
+      source: "OCIO",
+      telemetrySessionId: session,
+    });
+
+    for (let minute = 0; minute < 5; minute += 1) await reading(minute, 1000, "first-session");
+    await reading(5, 1100, "first-session");
+    await reading(6, 1150, "first-session");
+    await reading(7, 1200, "first-session");
+    await reading(8, 1250, "first-session");
+    await reading(9, 1300, "first-session");
+    for (let minute = 10; minute <= 19; minute += 1) await reading(minute, 1300, "first-session");
+    const first = await database.prepare(`SELECT id,liters FROM fuel_movements
+      WHERE movement_type='receipt'`).first();
+    assert.equal(first.liters, 300);
+
+    await reading(20, 1340, "second-session");
+    await reading(21, 1380, "second-session");
+    await reading(22, 1420, "second-session");
+    await reading(23, 1460, "second-session");
+    await reading(24, 1500, "second-session");
+    let detection = null;
+    for (let minute = 25; minute <= 29; minute += 1) {
+      detection = (await (await reading(minute, 1500, "second-session")).json()).detection;
+      if (detection.status === "extended") break;
+    }
+    const continuationState = await database.prepare(`SELECT baseline_level_liters AS baseline,
+      last_level_liters AS lastLevel,active_receipt_id AS activeId,active_started_at AS activeStartedAt,
+      warmup_started_at AS warmupStartedAt,last_reading_at AS lastReadingAt
+      FROM fuel_detection_state WHERE id=1`).first();
+    const receiptBeforeExtension = await database.prepare(`SELECT id,occurred_at AS occurredAt,liters,
+      opening_level_liters AS opening,closing_level_liters AS closing,created_at AS createdAt
+      FROM fuel_movements WHERE movement_type='receipt'`).first();
+    const receiptReviews = await database.prepare(`SELECT action,occurred_at AS occurredAt
+      FROM fuel_receipt_reviews WHERE movement_id=? ORDER BY occurred_at`).bind(first.id).all();
+    assert.equal(detection.status, "extended", JSON.stringify({
+      detection, continuationState, receiptBeforeExtension, receiptReviews: receiptReviews.results,
+    }));
+    assert.equal(detection.receiptId, first.id);
+    assert.deepEqual(await database.prepare(`SELECT COUNT(*) AS total,liters,
+      opening_level_liters AS opening,closing_level_liters AS closing
+      FROM fuel_movements WHERE movement_type='receipt'`).first(), {
+      total: 1, liters: 500, opening: 1000, closing: 1500,
+    });
+    assert.equal((await database.prepare(`SELECT COUNT(*) AS total FROM fuel_receipt_reviews
+      WHERE movement_id=? AND action='automatic_detected'`).bind(first.id).first()).total, 2);
   } finally {
     delete globalThis.__FUEL_EDGE_LOCAL_DB__;
     database.close();

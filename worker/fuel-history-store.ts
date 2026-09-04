@@ -16,6 +16,8 @@ export type FuelMovement = {
   closingLevel: number;
   source: string;
   reference: string;
+  legacyId?: string | null;
+  manualModeSessionId?: string | null;
   detail: string;
   operatorId?: string | null;
   operatorName?: string | null;
@@ -57,6 +59,7 @@ export type EdgeRuntimeStatus = {
 };
 
 const CAPACITY_LITERS = 2500;
+const PUMP_ENABLEMENT_THRESHOLD_LITERS = 0.12;
 const RECEIPT_THRESHOLD_LITERS = 100;
 const HIGH_CONFIDENCE_RECEIPT_LITERS = 120;
 // La recepción se reconoce por su forma temporal: subida breve y una nueva
@@ -70,11 +73,16 @@ const PLATEAU_WINDOW_MINUTES = 5;
 const CONFIRMATION_MINUTES = 10;
 const CANDIDATE_TIMEOUT_MINUTES = 45;
 const CANDIDATE_RETURN_MARGIN_LITERS = RECEIPT_THRESHOLD_LITERS / 2;
+const BASELINE_SETTLE_TOLERANCE_LITERS = 10;
+const RECEIPT_CONTINUATION_MINUTES = 90;
+const RECEIPT_CONTINUATION_MINIMUM_LITERS = 10;
 const TRANSIENT_RECEIPT_REPAIR_KEY = "ocio_transient_receipts_repair_v1";
 const DETECTOR_V2_MIGRATION_KEY = "sustained_receipt_detector_v2";
 const RECEIPT_REVIEW_MIGRATION_KEY = "receipt_review_workflow_v1";
 const HISTORICAL_AUTOMATIC_REVIEW_MIGRATION_KEY = "historical_automatic_receipt_review_v1";
 const RECEIPT_CONFIDENCE_MIGRATION_KEY = "automatic_receipt_confidence_v2";
+const MANUAL_MOVEMENT_IDENTITY_MIGRATION_KEY = "manual_movement_identity_v1";
+const PUMP_ENABLEMENT_CLASSIFICATION_MIGRATION_KEY = "pump_enablement_classification_v3_under_0_12";
 const initialized = new WeakSet<object>();
 const initializing = new WeakMap<object, Promise<void>>();
 
@@ -99,6 +107,8 @@ export async function ensureFuelHistoryStore(db: D1DatabaseLike, seedDemo = fals
           closing_level_liters REAL NOT NULL,
           source TEXT NOT NULL,
           reference_id TEXT NOT NULL,
+          legacy_id TEXT,
+          manual_mode_session_id TEXT,
           detail TEXT NOT NULL DEFAULT '',
           operator_id TEXT,
           equipment_id TEXT,
@@ -152,6 +162,7 @@ export async function ensureFuelHistoryStore(db: D1DatabaseLike, seedDemo = fals
           active_receipt_id TEXT,
           active_started_at TEXT,
           baseline_started_at TEXT NOT NULL DEFAULT '1970-01-01T00:00:00.000Z',
+          warmup_started_at TEXT,
           telemetry_session_id TEXT,
           last_reading_at TEXT NOT NULL
         )`),
@@ -182,6 +193,8 @@ export async function ensureFuelHistoryStore(db: D1DatabaseLike, seedDemo = fals
         ["adoption_stage", "adoption_stage TEXT CHECK(adoption_stage IN ('assisted','rfid_only','full'))"],
         ["assisted_mode", "assisted_mode INTEGER NOT NULL DEFAULT 0 CHECK(assisted_mode IN (0,1))"],
         ["equipment_issue", "equipment_issue TEXT"],
+        ["legacy_id", "legacy_id TEXT"],
+        ["manual_mode_session_id", "manual_mode_session_id TEXT"],
         ["review_status", "review_status TEXT NOT NULL DEFAULT 'not_required' CHECK(review_status IN ('not_required','pending','approved','corrected','rejected'))"],
         ["original_liters", "original_liters REAL"],
         ["document_reference", "document_reference TEXT"],
@@ -194,6 +207,7 @@ export async function ensureFuelHistoryStore(db: D1DatabaseLike, seedDemo = fals
           await db.prepare(`ALTER TABLE fuel_movements ADD COLUMN ${definition}`).run();
         }
       }
+      await db.prepare("CREATE UNIQUE INDEX IF NOT EXISTS idx_fuel_movements_legacy_id ON fuel_movements(legacy_id) WHERE legacy_id IS NOT NULL").run();
       await db.prepare("CREATE INDEX IF NOT EXISTS idx_fuel_movements_receipt_review ON fuel_movements(movement_type,review_status,occurred_at)").run();
       for (const column of [
         "nfc_ready INTEGER NOT NULL DEFAULT 0",
@@ -212,6 +226,7 @@ export async function ensureFuelHistoryStore(db: D1DatabaseLike, seedDemo = fals
       const detectorColumns = await db.prepare("PRAGMA table_info(fuel_detection_state)").all<{ name: string }>();
       for (const column of [
         ["baseline_started_at", "baseline_started_at TEXT NOT NULL DEFAULT '1970-01-01T00:00:00.000Z'"],
+        ["warmup_started_at", "warmup_started_at TEXT"],
         ["telemetry_session_id", "telemetry_session_id TEXT"],
       ] as const) {
         if (!detectorColumns.results.some((item) => item.name === column[0])) {
@@ -223,14 +238,16 @@ export async function ensureFuelHistoryStore(db: D1DatabaseLike, seedDemo = fals
       } else {
         await db.prepare(`INSERT OR IGNORE INTO fuel_detection_state(
           id,capacity_liters,baseline_level_liters,last_level_liters,peak_level_liters,
-          active_receipt_id,active_started_at,baseline_started_at,telemetry_session_id,last_reading_at
-        ) VALUES (1,?,0,0,0,NULL,NULL,'1970-01-01T00:00:00.000Z',NULL,'1970-01-01T00:00:00.000Z')`).bind(CAPACITY_LITERS).run();
+          active_receipt_id,active_started_at,baseline_started_at,warmup_started_at,telemetry_session_id,last_reading_at
+        ) VALUES (1,?,0,0,0,NULL,NULL,'1970-01-01T00:00:00.000Z',NULL,NULL,'1970-01-01T00:00:00.000Z')`).bind(CAPACITY_LITERS).run();
       }
       await repairTransientReceipts(db);
       await migrateSustainedReceiptDetector(db);
       await migrateReceiptReviewWorkflow(db);
       await migrateHistoricalAutomaticReceiptsForReview(db);
       await migrateAutomaticReceiptConfidence(db);
+      await migrateManualMovementIdentity(db);
+      await migrateLegacyPumpEnablements(db);
       await db.prepare("PRAGMA optimize").run();
       initialized.add(marker);
     })().finally(() => initializing.delete(marker));
@@ -243,7 +260,8 @@ export async function listFuelMovements(db: D1DatabaseLike, from: string, toExcl
   const result = await db.prepare(`SELECT
       movements.id,movements.movement_type AS type,movements.classification,movements.occurred_at AS occurredAt,movements.liters,
       movements.opening_level_liters AS openingLevel,movements.closing_level_liters AS closingLevel,
-      movements.source,movements.reference_id AS reference,movements.detail,
+      movements.source,movements.reference_id AS reference,movements.legacy_id AS legacyId,
+      movements.manual_mode_session_id AS manualModeSessionId,movements.detail,
       movements.operator_id AS operatorId,operators.name AS operatorName,
       movements.equipment_id AS equipmentId,equipment.name AS equipmentName,movements.is_master AS isMaster,
       movements.authorization_evidence AS authorizationEvidence,movements.adoption_stage AS adoptionStage,
@@ -266,7 +284,7 @@ export async function listPendingReceiptReviews(db: D1DatabaseLike) {
   const result = await db.prepare(`SELECT
       movements.id,movements.movement_type AS type,movements.classification,movements.occurred_at AS occurredAt,movements.liters,
       movements.opening_level_liters AS openingLevel,movements.closing_level_liters AS closingLevel,
-      movements.source,movements.reference_id AS reference,movements.detail,
+      movements.source,movements.reference_id AS reference,NULL AS legacyId,NULL AS manualModeSessionId,movements.detail,
       movements.operator_id AS operatorId,NULL AS operatorName,movements.equipment_id AS equipmentId,NULL AS equipmentName,
       movements.is_master AS isMaster,movements.detected_automatically AS detectedAutomatically,movements.confidence,
       movements.detection_status AS status,movements.review_status AS reviewStatus,
@@ -280,16 +298,24 @@ export async function listPendingReceiptReviews(db: D1DatabaseLike) {
 }
 
 export async function fuelSensorState(db: D1DatabaseLike) {
-  const state = await db.prepare(`SELECT capacity_liters AS capacityLiters,last_level_liters AS currentLevel,
-      last_reading_at AS latestReadingAt,active_receipt_id AS activeReceiptId
+  const state = await db.prepare(`SELECT capacity_liters AS capacityLiters,baseline_level_liters AS baselineLevel,
+      last_level_liters AS currentLevel,peak_level_liters AS peakLevel,last_reading_at AS latestReadingAt,
+      active_receipt_id AS activeReceiptId,active_started_at AS activeStartedAt,warmup_started_at AS warmupStartedAt
     FROM fuel_detection_state WHERE id=1`).first<Record<string, unknown>>();
+  const active = Boolean(state?.activeReceiptId);
+  const observedRiseLiters = round1(Math.max(0,
+    Number(active ? state?.peakLevel : state?.currentLevel) - Number(state?.baselineLevel ?? 0)));
   return {
     capacityLiters: Number(state?.capacityLiters ?? CAPACITY_LITERS),
     currentLevel: Number(state?.currentLevel ?? 0),
     latestReadingAt: String(state?.latestReadingAt ?? ""),
     receiptThresholdLiters: RECEIPT_THRESHOLD_LITERS,
     acceptedVariationPercent: STABLE_PLATEAU_TOLERANCE_PERCENT,
-    detectionStatus: state?.activeReceiptId ? "detecting" : "monitoring",
+    detectionStatus: active ? "detecting" : state?.warmupStartedAt ? "warming_up"
+      : observedRiseLiters >= RECEIPT_CONTINUATION_MINIMUM_LITERS ? "rising" : "monitoring",
+    activeReceiptId: state?.activeReceiptId ? String(state.activeReceiptId) : null,
+    activeStartedAt: state?.activeStartedAt ? String(state.activeStartedAt) : null,
+    observedRiseLiters,
   };
 }
 
@@ -330,7 +356,7 @@ export async function resetFuelHistoryStore(db: D1DatabaseLike, actorUserId: str
     db.prepare(`UPDATE fuel_detection_state SET
       capacity_liters=?,baseline_level_liters=0,last_level_liters=0,peak_level_liters=0,
       active_receipt_id=NULL,active_started_at=NULL,
-      baseline_started_at='1970-01-01T00:00:00.000Z',telemetry_session_id=NULL,
+      baseline_started_at='1970-01-01T00:00:00.000Z',warmup_started_at=NULL,telemetry_session_id=NULL,
       last_reading_at='1970-01-01T00:00:00.000Z'
       WHERE id=1`).bind(CAPACITY_LITERS),
     db.prepare(`INSERT INTO fuel_history_meta(key,value) VALUES ('seed_version','2')
@@ -354,10 +380,7 @@ export async function ingestEdgeRuntimeStatus(db: D1DatabaseLike, body: Record<s
   const technologyAdoptionStage = validAdoptionStage(body.technologyAdoptionStage) ? body.technologyAdoptionStage : "full";
   const adoptionPolicyRevision = Number(body.adoptionPolicyRevision ?? 1);
   if (!Number.isInteger(adoptionPolicyRevision) || adoptionPolicyRevision <= 0) throw new Error("La revisión de adopción no es válida.");
-  const detector = await db.prepare("SELECT telemetry_session_id AS telemetrySessionId FROM fuel_detection_state WHERE id=1")
-    .first<Record<string, unknown>>();
-  const sessionChanged = Boolean(telemetrySessionId && telemetrySessionId !== detector?.telemetrySessionId);
-  const statements = [db.prepare(`INSERT INTO edge_runtime_status(id,module_id,site_id,state,relay_energized,validator_online,nfc_ready,k24_enabled,k24_healthy,tank_level_enabled,telemetry_session_id,technology_adoption_stage,adoption_policy_revision,occurred_at)
+  await db.prepare(`INSERT INTO edge_runtime_status(id,module_id,site_id,state,relay_energized,validator_online,nfc_ready,k24_enabled,k24_healthy,tank_level_enabled,telemetry_session_id,technology_adoption_stage,adoption_policy_revision,occurred_at)
     VALUES (1,?,?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET module_id=excluded.module_id,site_id=excluded.site_id,
     state=excluded.state,relay_energized=excluded.relay_energized,validator_online=excluded.validator_online,
     nfc_ready=excluded.nfc_ready,k24_enabled=excluded.k24_enabled,k24_healthy=excluded.k24_healthy,
@@ -368,12 +391,7 @@ export async function ingestEdgeRuntimeStatus(db: D1DatabaseLike, body: Record<s
       Number(body.k24Enabled), Number(body.k24Healthy), Number(body.tankLevelEnabled), telemetrySessionId,
       technologyAdoptionStage, adoptionPolicyRevision,
       timestamp.toISOString(),
-    )];
-  if (sessionChanged) {
-    statements.push(db.prepare(`UPDATE fuel_detection_state SET active_receipt_id=NULL,active_started_at=NULL,
-      baseline_started_at=?,telemetry_session_id=? WHERE id=1`).bind(timestamp.toISOString(), telemetrySessionId));
-  }
-  await db.batch(statements);
+    ).run();
   return { recorded: true };
 }
 
@@ -405,7 +423,8 @@ export async function ingestFuelLevelReading(
   }
   const state = await db.prepare(`SELECT baseline_level_liters AS baseline,last_level_liters AS lastLevel,
       peak_level_liters AS peak,active_receipt_id AS activeId,active_started_at AS activeStartedAt,
-      baseline_started_at AS baselineStartedAt,telemetry_session_id AS telemetrySessionId,
+      baseline_started_at AS baselineStartedAt,warmup_started_at AS warmupStartedAt,
+      telemetry_session_id AS telemetrySessionId,
       last_reading_at AS lastReadingAt FROM fuel_detection_state WHERE id=1`).first<Record<string, unknown>>();
   if (!state) throw new Error("El detector de nivel no está inicializado.");
   if (iso <= String(state.lastReadingAt)) throw new Error("La lectura es anterior a la última muestra registrada.");
@@ -415,14 +434,14 @@ export async function ingestFuelLevelReading(
   const sessionChanged = Boolean(normalizedSessionId && normalizedSessionId !== state.telemetrySessionId);
   const telemetryGap = !firstReading
     && timestamp.getTime() - previousAt.getTime() > TELEMETRY_GAP_MINUTES * 60_000;
-  if (firstReading || sessionChanged || telemetryGap) {
+  if (firstReading || telemetryGap) {
     await db.batch([
       db.prepare("INSERT INTO fuel_level_readings(occurred_at,level_liters,source) VALUES (?,?,?)")
         .bind(iso, round1(levelLiters), normalizedSource),
       db.prepare(`UPDATE fuel_detection_state SET baseline_level_liters=?,last_level_liters=?,peak_level_liters=?,
-        active_receipt_id=NULL,active_started_at=NULL,baseline_started_at=?,telemetry_session_id=?,
+        active_receipt_id=NULL,active_started_at=NULL,baseline_started_at=?,warmup_started_at=?,telemetry_session_id=?,
         last_reading_at=? WHERE id=1`)
-        .bind(round1(levelLiters), round1(levelLiters), round1(levelLiters), iso,
+        .bind(round1(levelLiters), round1(levelLiters), round1(levelLiters), iso, iso,
           normalizedSessionId ?? state.telemetrySessionId ?? null, iso),
     ]);
     return {
@@ -437,13 +456,76 @@ export async function ingestFuelLevelReading(
   const baseline = Number(state.baseline);
   const peak = Number(state.peak);
   const activeId = state.activeId ? String(state.activeId) : null;
+  const effectiveSessionId = normalizedSessionId
+    ?? (state.telemetrySessionId ? String(state.telemetrySessionId) : null);
+
+  if (sessionChanged && !activeId) {
+    await db.batch([
+      db.prepare("INSERT INTO fuel_level_readings(occurred_at,level_liters,source) VALUES (?,?,?)")
+        .bind(iso, round1(levelLiters), normalizedSource),
+      detectorStateStatement(db, {
+        baseline,
+        lastLevel: levelLiters,
+        peak: Math.max(peak, levelLiters),
+        activeId: null,
+        activeStartedAt: null,
+        baselineStartedAt: String(state.baselineStartedAt),
+        warmupStartedAt: iso,
+        telemetrySessionId: effectiveSessionId,
+        lastReadingAt: iso,
+      }),
+    ]);
+    return { status: "warming_up", receiptId: null, detectedLiters: 0, levelLiters: round1(levelLiters), occurredAt: iso };
+  }
 
   await db.prepare("INSERT INTO fuel_level_readings(occurred_at,level_liters,source) VALUES (?,?,?)")
     .bind(iso, round1(levelLiters), normalizedSource).run();
-  const baselineStartedAt = new Date(String(state.baselineStartedAt));
+
+  const continuedReceipt = await extendRecentPendingReceipt(db, {
+    currentLevel: levelLiters,
+    occurredAt: timestamp,
+    occurredAtIso: iso,
+    telemetrySessionId: effectiveSessionId,
+  });
+  if (continuedReceipt) return continuedReceipt;
+
+  let baselineEstimate = baseline;
+  let baselineStartedAt = String(state.baselineStartedAt);
+  let warmupRebased = false;
+  const warmupStartedAt = state.warmupStartedAt ? String(state.warmupStartedAt) : null;
+  if (warmupStartedAt && !activeId) {
+    const warmupBuckets = await minuteLevelBuckets(db, new Date(warmupStartedAt), timestamp);
+    const hasWarmupWindow = warmupBuckets.length >= WARMUP_MINUTE_BUCKETS
+      && minuteSpan(warmupBuckets) >= WARMUP_MINUTE_BUCKETS - 1;
+    if (!hasWarmupWindow) {
+      await updateDetectorState(db, {
+        baseline,
+        lastLevel: levelLiters,
+        peak: Math.max(peak, levelLiters),
+        activeId: null,
+        activeStartedAt: null,
+        baselineStartedAt,
+        warmupStartedAt,
+        telemetrySessionId: effectiveSessionId,
+        lastReadingAt: iso,
+      });
+      return { status: "warming_up", receiptId: null, detectedLiters: 0, levelLiters: round1(levelLiters), occurredAt: iso };
+    }
+    const warmupLevels = warmupBuckets.map((bucket) => bucket.levelLiters);
+    const warmupPlateau = median(warmupLevels);
+    const warmupSpread = Math.max(...warmupLevels) - Math.min(...warmupLevels);
+    if (warmupSpread <= BASELINE_SETTLE_TOLERANCE_LITERS
+      && Math.abs(warmupPlateau - baseline) < RECEIPT_THRESHOLD_LITERS) {
+      baselineEstimate = warmupPlateau;
+      baselineStartedAt = iso;
+      warmupRebased = true;
+    }
+  }
+
   const sessionBuckets = await minuteLevelBuckets(
     db,
-    new Date(Math.max(baselineStartedAt.getTime(), timestamp.getTime() - BASELINE_LOOKBACK_MINUTES * 60_000)),
+    new Date(Math.max(storedInstant(baselineStartedAt).getTime(),
+      timestamp.getTime() - BASELINE_LOOKBACK_MINUTES * 60_000)),
     timestamp,
   );
 
@@ -457,26 +539,31 @@ export async function ingestFuelLevelReading(
       occurredAt: timestamp,
       occurredAtIso: iso,
       source: normalizedSource,
-      telemetrySessionId: normalizedSessionId ?? (state.telemetrySessionId ? String(state.telemetrySessionId) : null),
+      telemetrySessionId: effectiveSessionId,
     });
   }
 
   const baselineBuckets = sessionBuckets.filter((bucket) => bucket.minute < minuteKey(timestamp));
-  const baselineEstimate = baselineBuckets.length > 0
-    ? median(baselineBuckets.map((bucket) => bucket.levelLiters))
-    : levelLiters;
-  if (sessionBuckets.length < WARMUP_MINUTE_BUCKETS) {
-    await updateDetectorState(db, {
-      baseline: baselineEstimate,
-      lastLevel: levelLiters,
-      peak: baselineEstimate,
-      activeId: null,
-      activeStartedAt: null,
-      baselineStartedAt: String(state.baselineStartedAt),
-      telemetrySessionId: normalizedSessionId ?? (state.telemetrySessionId ? String(state.telemetrySessionId) : null),
-      lastReadingAt: iso,
-    });
-    return { status: "warming_up", receiptId: null, detectedLiters: 0, levelLiters: round1(levelLiters), occurredAt: iso };
+  if (!warmupRebased && baselineBuckets.length > 0) {
+    // Las caídas breves del ciclo OCIO no deben convertirse en una referencia
+    // artificialmente baja. La mediana sólo puede bajar el ancla cuando el
+    // conjunto reciente respalda el descenso.
+    const recentBaseline = median(baselineBuckets.map((bucket) => bucket.levelLiters));
+    if (recentBaseline < baselineEstimate - BASELINE_SETTLE_TOLERANCE_LITERS) {
+      baselineEstimate = recentBaseline;
+    }
+  }
+  const settledLevels = sessionBuckets.map((bucket) => bucket.levelLiters);
+  const hasSettledWindow = sessionBuckets.length >= BASELINE_LOOKBACK_MINUTES
+    && minuteSpan(sessionBuckets) >= BASELINE_LOOKBACK_MINUTES - 1;
+  if (hasSettledWindow) {
+    const settledLevel = median(settledLevels);
+    const settledSpread = Math.max(...settledLevels) - Math.min(...settledLevels);
+    if (settledSpread <= BASELINE_SETTLE_TOLERANCE_LITERS
+      && Math.abs(settledLevel - baselineEstimate) < RECEIPT_THRESHOLD_LITERS) {
+      baselineEstimate = settledLevel;
+      baselineStartedAt = iso;
+    }
   }
 
   const riseFromBaseline = levelLiters - baselineEstimate;
@@ -488,8 +575,9 @@ export async function ingestFuelLevelReading(
       peak: levelLiters,
       activeId: candidateId,
       activeStartedAt: iso,
-      baselineStartedAt: String(state.baselineStartedAt),
-      telemetrySessionId: normalizedSessionId ?? (state.telemetrySessionId ? String(state.telemetrySessionId) : null),
+      baselineStartedAt,
+      warmupStartedAt: null,
+      telemetrySessionId: effectiveSessionId,
       lastReadingAt: iso,
     });
     return {
@@ -507,8 +595,9 @@ export async function ingestFuelLevelReading(
     peak: baselineEstimate,
     activeId: null,
     activeStartedAt: null,
-    baselineStartedAt: String(state.baselineStartedAt),
-    telemetrySessionId: normalizedSessionId ?? (state.telemetrySessionId ? String(state.telemetrySessionId) : null),
+    baselineStartedAt,
+    warmupStartedAt: null,
+    telemetrySessionId: effectiveSessionId,
     lastReadingAt: iso,
   });
   return { status: "none", receiptId: null, detectedLiters: 0, levelLiters: round1(levelLiters), occurredAt: iso };
@@ -521,11 +610,91 @@ type DetectorStateUpdate = {
   activeId: string | null;
   activeStartedAt: string | null;
   baselineStartedAt: string;
+  warmupStartedAt: string | null;
   telemetrySessionId: string | null;
   lastReadingAt: string;
 };
 
 type MinuteLevelBucket = { minute: number; levelLiters: number };
+
+async function extendRecentPendingReceipt(db: D1DatabaseLike, continuation: {
+  currentLevel: number;
+  occurredAt: Date;
+  occurredAtIso: string;
+  telemetrySessionId: string | null;
+}) {
+  const receipt = await db.prepare(`SELECT movements.id,movements.occurred_at AS occurredAt,
+      movements.opening_level_liters AS openingLevel,movements.closing_level_liters AS closingLevel,
+      movements.liters,movements.confidence,
+      (SELECT reviews.occurred_at FROM fuel_receipt_reviews AS reviews
+        WHERE reviews.movement_id=movements.id AND reviews.action='automatic_detected'
+        ORDER BY reviews.occurred_at DESC LIMIT 1) AS detectedAt
+    FROM fuel_movements AS movements
+    WHERE movements.movement_type='receipt' AND movements.detected_automatically=1
+      AND movements.detection_status='confirmed' AND movements.review_status='pending'
+      AND NOT EXISTS (
+        SELECT 1 FROM fuel_movements AS later
+        WHERE later.id<>movements.id AND later.occurred_at>movements.occurred_at
+      )
+    ORDER BY movements.created_at DESC LIMIT 1`).first<Record<string, unknown>>();
+  if (!receipt?.id || !receipt.detectedAt) return null;
+  const detectedAt = storedInstant(String(receipt.detectedAt));
+  const continuationMinutes = (continuation.occurredAt.getTime() - detectedAt.getTime()) / 60_000;
+  if (!Number.isFinite(continuationMinutes) || continuationMinutes < 0
+    || continuationMinutes > RECEIPT_CONTINUATION_MINUTES) return null;
+
+  const plateauFrom = new Date(continuation.occurredAt.getTime() - PLATEAU_WINDOW_MINUTES * 60_000);
+  const plateauBuckets = await minuteLevelBuckets(db, plateauFrom, continuation.occurredAt);
+  const hasFullPlateau = plateauBuckets.length >= PLATEAU_WINDOW_MINUTES
+    && minuteSpan(plateauBuckets) >= PLATEAU_WINDOW_MINUTES - 1;
+  if (!hasFullPlateau) return null;
+  const plateauLevels = plateauBuckets.map((bucket) => bucket.levelLiters);
+  const plateauLevel = median(plateauLevels);
+  const toleranceLiters = CAPACITY_LITERS * STABLE_PLATEAU_TOLERANCE_PERCENT / 100;
+  const plateauSpread = Math.max(...plateauLevels) - Math.min(...plateauLevels);
+  const priorClosing = Number(receipt.closingLevel);
+  if (plateauSpread > toleranceLiters
+    || plateauLevel - priorClosing < RECEIPT_CONTINUATION_MINIMUM_LITERS) return null;
+
+  const evidenceBuckets = await minuteLevelBuckets(db, detectedAt, continuation.occurredAt);
+  if (evidenceBuckets.length === 0
+    || Math.min(...evidenceBuckets.map((bucket) => bucket.levelLiters)) < priorClosing - toleranceLiters) return null;
+
+  const totalLiters = round1(plateauLevel - Number(receipt.openingLevel));
+  if (totalLiters <= Number(receipt.liters) || totalLiters > CAPACITY_LITERS) return null;
+  const confidence = Math.max(Number(receipt.confidence),
+    receiptConfidence(totalLiters, plateauSpread, plateauBuckets.length, toleranceLiters));
+  const auditId = `${receipt.id}:continued:${crypto.randomUUID()}`;
+  await db.batch([
+    db.prepare(`UPDATE fuel_movements SET liters=?,closing_level_liters=?,original_liters=?,confidence=?,
+      review_note='Recepción automática ampliada por continuidad del aumento de nivel'
+      WHERE id=? AND review_status='pending'`)
+      .bind(totalLiters, round1(plateauLevel), totalLiters, confidence, receipt.id),
+    db.prepare(`INSERT INTO fuel_receipt_reviews(
+      id,movement_id,action,previous_liters,resulting_liters,note,occurred_at
+    ) VALUES (?,?,'automatic_detected',?,?,'Continuación sostenida consolidada en la misma recepción',?)`)
+      .bind(auditId, receipt.id, Number(receipt.liters), totalLiters, continuation.occurredAtIso),
+    detectorStateStatement(db, {
+      baseline: plateauLevel,
+      lastLevel: continuation.currentLevel,
+      peak: plateauLevel,
+      activeId: null,
+      activeStartedAt: null,
+      baselineStartedAt: continuation.occurredAtIso,
+      warmupStartedAt: null,
+      telemetrySessionId: continuation.telemetrySessionId,
+      lastReadingAt: continuation.occurredAtIso,
+    }),
+  ]);
+  return {
+    status: "extended",
+    receiptId: String(receipt.id),
+    reviewStatus: "pending",
+    detectedLiters: totalLiters,
+    levelLiters: round1(continuation.currentLevel),
+    occurredAt: continuation.occurredAtIso,
+  };
+}
 
 async function updateReceiptCandidate(db: D1DatabaseLike, candidate: {
   activeId: string;
@@ -561,6 +730,7 @@ async function updateReceiptCandidate(db: D1DatabaseLike, candidate: {
       activeId: null,
       activeStartedAt: null,
       baselineStartedAt: candidateTimedOut ? candidate.occurredAtIso : candidate.activeStartedAt,
+      warmupStartedAt: null,
       telemetrySessionId: candidate.telemetrySessionId,
       lastReadingAt: candidate.occurredAtIso,
     });
@@ -611,6 +781,7 @@ async function updateReceiptCandidate(db: D1DatabaseLike, candidate: {
         activeId: null,
         activeStartedAt: null,
         baselineStartedAt: candidate.occurredAtIso,
+        warmupStartedAt: null,
         telemetrySessionId: candidate.telemetrySessionId,
         lastReadingAt: candidate.occurredAtIso,
       }),
@@ -632,6 +803,7 @@ async function updateReceiptCandidate(db: D1DatabaseLike, candidate: {
     activeId: candidate.activeId,
     activeStartedAt: candidate.activeStartedAt,
     baselineStartedAt: candidate.activeStartedAt,
+    warmupStartedAt: null,
     telemetrySessionId: candidate.telemetrySessionId,
     lastReadingAt: candidate.occurredAtIso,
   });
@@ -666,16 +838,19 @@ async function updateDetectorState(db: D1DatabaseLike, state: DetectorStateUpdat
 
 function detectorStateStatement(db: D1DatabaseLike, state: DetectorStateUpdate) {
   return db.prepare(`UPDATE fuel_detection_state SET baseline_level_liters=?,last_level_liters=?,peak_level_liters=?,
-    active_receipt_id=?,active_started_at=?,baseline_started_at=?,telemetry_session_id=?,last_reading_at=? WHERE id=1`)
+    active_receipt_id=?,active_started_at=?,baseline_started_at=?,warmup_started_at=?,telemetry_session_id=?,last_reading_at=? WHERE id=1`)
     .bind(
       round1(state.baseline), round1(state.lastLevel), round1(state.peak), state.activeId, state.activeStartedAt,
-      state.baselineStartedAt, state.telemetrySessionId, state.lastReadingAt,
+      state.baselineStartedAt, state.warmupStartedAt, state.telemetrySessionId, state.lastReadingAt,
     );
 }
 
 function minuteKey(date: Date) { return Math.floor(date.getTime() / 60_000); }
 function minuteSpan(buckets: MinuteLevelBucket[]) {
   return buckets.length < 2 ? 0 : buckets.at(-1)!.minute - buckets[0].minute;
+}
+function storedInstant(value: string) {
+  return new Date(value.includes("T") ? value : `${value.replace(" ", "T")}Z`);
 }
 function median(values: number[]) {
   if (values.length === 0) throw new Error("No se puede calcular una mediana sin lecturas.");
@@ -842,7 +1017,8 @@ async function assertDocumentReferenceAvailable(db: D1DatabaseLike, reference: s
 
 async function fuelMovementById(db: D1DatabaseLike, id: string) {
   const row = await db.prepare(`SELECT id,movement_type AS type,classification,occurred_at AS occurredAt,liters,
-    opening_level_liters AS openingLevel,closing_level_liters AS closingLevel,source,reference_id AS reference,detail,
+    opening_level_liters AS openingLevel,closing_level_liters AS closingLevel,source,reference_id AS reference,
+    legacy_id AS legacyId,manual_mode_session_id AS manualModeSessionId,detail,
     operator_id AS operatorId,NULL AS operatorName,equipment_id AS equipmentId,NULL AS equipmentName,is_master AS isMaster,
     detected_automatically AS detectedAutomatically,confidence,detection_status AS status,review_status AS reviewStatus,
     original_liters AS originalLiters,document_reference AS documentReference,reviewed_by_user_id AS reviewedByUserId,
@@ -875,19 +1051,35 @@ type EdgeFuelMovementInput = {
   adoptionStage?: unknown;
   assistedMode?: unknown;
   equipmentIssue?: unknown;
+  manualMode?: unknown;
+  manualModeSessionId?: unknown;
 };
 
 export async function ingestEdgeFuelMovement(db: D1DatabaseLike, input: EdgeFuelMovementInput) {
-  const id = boundedText(input.id, 128);
-  if (!id || !/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/u.test(id)) throw new Error("El identificador del despacho no es válido.");
+  const suppliedId = boundedText(input.id, 128);
+  if (!suppliedId || !/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/u.test(suppliedId)) throw new Error("El identificador del despacho no es válido.");
   if (input.type !== "dispatch") throw new Error("El canal edge sólo acepta despachos del PLC.");
-  const classification = typeof input.classification === "undefined" ? "standard" : input.classification;
-  if (classification !== "standard" && classification !== "pump_enablement") {
+  if (typeof input.manualMode !== "undefined" && typeof input.manualMode !== "boolean") throw new Error("La condición de modo manual no es válida.");
+  const suppliedSessionId = optionalIdentifier(input.manualModeSessionId);
+  if (input.manualModeSessionId != null && !suppliedSessionId) throw new Error("La sesión de modo manual no es válida.");
+  const legacyManualId = suppliedId.startsWith("manual-segment-");
+  const id = legacyManualId ? suppliedId.slice("manual-segment-".length) : suppliedId;
+  if (!id || !/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/u.test(id)) throw new Error("El identificador del despacho no es válido.");
+  const suppliedReference = boundedText(input.reference, 128);
+  const manualMode = input.manualMode === true || legacyManualId || Boolean(suppliedSessionId);
+  const manualModeSessionId = suppliedSessionId
+    ?? (manualMode && suppliedReference && suppliedReference !== suppliedId ? optionalIdentifier(suppliedReference) : null);
+  const legacyId = legacyManualId ? suppliedId : null;
+  if (typeof input.classification !== "undefined"
+    && input.classification !== "standard" && input.classification !== "pump_enablement") {
     throw new Error("La clasificación del movimiento no es válida.");
   }
   if (typeof input.liters !== "number" || !Number.isFinite(input.liters) || input.liters <= 0 || input.liters > CAPACITY_LITERS) {
     throw new Error(`El despacho debe estar entre 0 y ${CAPACITY_LITERS} litros.`);
   }
+  const classification = input.liters < PUMP_ENABLEMENT_THRESHOLD_LITERS
+    ? "pump_enablement"
+    : input.classification ?? "standard";
   if (typeof input.occurredAt !== "string") throw new Error("La fecha del despacho no es válida.");
   const timestamp = new Date(input.occurredAt);
   if (Number.isNaN(timestamp.getTime())) throw new Error("La fecha del despacho no es válida.");
@@ -896,7 +1088,8 @@ export async function ingestEdgeFuelMovement(db: D1DatabaseLike, input: EdgeFuel
   const existing = await db.prepare(`SELECT
       id,movement_type AS type,classification,occurred_at AS occurredAt,liters,
       opening_level_liters AS openingLevel,closing_level_liters AS closingLevel,
-      source,reference_id AS reference,detail,operator_id AS operatorId,equipment_id AS equipmentId,
+      source,reference_id AS reference,legacy_id AS legacyId,manual_mode_session_id AS manualModeSessionId,
+      detail,operator_id AS operatorId,equipment_id AS equipmentId,
       is_master AS isMaster,authorization_evidence AS authorizationEvidence,adoption_stage AS adoptionStage,
       assisted_mode AS assistedMode,equipment_issue AS equipmentIssue,detected_automatically AS detectedAutomatically,
       confidence,detection_status AS status FROM fuel_movements WHERE id=?`).bind(id).first<Record<string, unknown>>();
@@ -918,8 +1111,8 @@ export async function ingestEdgeFuelMovement(db: D1DatabaseLike, input: EdgeFuel
   if (typeof input.assistedMode !== "undefined" && typeof input.assistedMode !== "boolean") throw new Error("La condición asistida no es válida.");
   const assistedMode = input.assistedMode === true;
   const equipmentIssue = boundedText(input.equipmentIssue, 80) || null;
-  if (classification === "pump_enablement" && input.liters >= 0.1) {
-    throw new Error("Una habilitación de bomba debe registrar menos de 0,1 L.");
+  if (classification === "pump_enablement" && input.liters >= PUMP_ENABLEMENT_THRESHOLD_LITERS) {
+    throw new Error("Una habilitación de bomba debe registrar menos de 0,12 L.");
   }
   if (isMaster && !operatorId) throw new Error("Un despacho con tarjeta maestra requiere un operador responsable.");
   if ((authorizationEvidence === "full") && (!operatorId || !equipmentId)) throw new Error("La trazabilidad completa requiere operador y equipo.");
@@ -937,6 +1130,7 @@ export async function ingestEdgeFuelMovement(db: D1DatabaseLike, input: EdgeFuel
       || movement.authorizationEvidence !== authorizationEvidence
       || movement.adoptionStage !== adoptionStage
       || movement.assistedMode !== assistedMode
+      || movement.manualModeSessionId !== manualModeSessionId
       || movement.detectedAutomatically !== unauthorized
     ) throw new Error("El identificador del despacho ya pertenece a otro movimiento.");
     return { created: false, movement };
@@ -955,9 +1149,9 @@ export async function ingestEdgeFuelMovement(db: D1DatabaseLike, input: EdgeFuel
   await db.batch([
     db.prepare(`INSERT INTO fuel_movements(
       id,movement_type,classification,occurred_at,liters,opening_level_liters,closing_level_liters,
-      source,reference_id,detail,operator_id,equipment_id,is_master,authorization_evidence,adoption_stage,
+      source,reference_id,legacy_id,manual_mode_session_id,detail,operator_id,equipment_id,is_master,authorization_evidence,adoption_stage,
       assisted_mode,equipment_issue,detected_automatically,confidence,detection_status
-    ) VALUES (?,'dispatch',?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,1,'confirmed')`).bind(
+    ) VALUES (?,'dispatch',?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,1,'confirmed')`).bind(
       id,
       classification,
       timestamp.toISOString(),
@@ -965,7 +1159,9 @@ export async function ingestEdgeFuelMovement(db: D1DatabaseLike, input: EdgeFuel
       opening,
       closing,
       boundedText(input.source, 80) || "K24 + PLC",
-      boundedText(input.reference, 128) || id,
+      manualMode ? id : suppliedReference || id,
+      legacyId,
+      manualModeSessionId,
       movementDetail,
       operatorId,
       equipmentId,
@@ -985,11 +1181,69 @@ export async function ingestEdgeFuelMovement(db: D1DatabaseLike, input: EdgeFuel
   const movement = await db.prepare(`SELECT
       id,movement_type AS type,classification,occurred_at AS occurredAt,liters,
       opening_level_liters AS openingLevel,closing_level_liters AS closingLevel,
-      source,reference_id AS reference,detail,operator_id AS operatorId,equipment_id AS equipmentId,
+      source,reference_id AS reference,legacy_id AS legacyId,manual_mode_session_id AS manualModeSessionId,
+      detail,operator_id AS operatorId,equipment_id AS equipmentId,
       is_master AS isMaster,authorization_evidence AS authorizationEvidence,adoption_stage AS adoptionStage,
       assisted_mode AS assistedMode,equipment_issue AS equipmentIssue,detected_automatically AS detectedAutomatically,
       confidence,detection_status AS status FROM fuel_movements WHERE id=?`).bind(id).first<Record<string, unknown>>();
   return { created: true, movement: movement ? toMovement(movement) : null };
+}
+
+async function migrateManualMovementIdentity(db: D1DatabaseLike) {
+  const applied = await db.prepare("SELECT value FROM fuel_history_meta WHERE key=?")
+    .bind(MANUAL_MOVEMENT_IDENTITY_MIGRATION_KEY).first<{ value: string }>();
+  if (applied) return;
+
+  const legacyRows = await db.prepare(`SELECT id,reference_id AS reference
+    FROM fuel_movements WHERE movement_type='dispatch' AND (
+      id LIKE 'manual-segment-%'
+      OR source LIKE '%Modo manual%'
+      OR source LIKE '%Adopción asistida%'
+      OR detail LIKE '%Modo manual%'
+      OR detail LIKE '%Adopción asistida%'
+    )`).all<{ id: string; reference: string }>();
+  const existingIds = new Set((await db.prepare("SELECT id FROM fuel_movements").all<{ id: string }>()).results.map((row) => row.id));
+  const statements = [];
+  let normalized = 0;
+  for (const row of legacyRows.results) {
+    const legacyId = row.id.startsWith("manual-segment-") ? row.id : null;
+    const transactionId = legacyId ? row.id.slice("manual-segment-".length) : row.id;
+    if (!transactionId || (transactionId !== row.id && existingIds.has(transactionId))) {
+      throw new Error("No fue posible normalizar un identificador manual duplicado.");
+    }
+    const sessionId = row.reference && row.reference !== row.id ? row.reference : null;
+    statements.push(db.prepare(`UPDATE fuel_movements SET
+      id=?,reference_id=?,legacy_id=COALESCE(legacy_id,?),
+      manual_mode_session_id=COALESCE(manual_mode_session_id,?) WHERE id=?`)
+      .bind(transactionId, transactionId, legacyId, sessionId, row.id));
+    existingIds.delete(row.id);
+    existingIds.add(transactionId);
+    normalized += 1;
+  }
+  const migratedAt = new Date().toISOString();
+  statements.push(db.prepare("INSERT INTO fuel_history_meta(key,value) VALUES (?,?)")
+    .bind(MANUAL_MOVEMENT_IDENTITY_MIGRATION_KEY, JSON.stringify({ migratedAt, normalized })));
+  await db.batch(statements);
+}
+
+async function migrateLegacyPumpEnablements(db: D1DatabaseLike) {
+  const applied = await db.prepare("SELECT value FROM fuel_history_meta WHERE key=?")
+    .bind(PUMP_ENABLEMENT_CLASSIFICATION_MIGRATION_KEY).first<{ value: string }>();
+  if (applied) return;
+  const candidates = await db.prepare(`SELECT COUNT(*) AS total FROM fuel_movements
+    WHERE movement_type='dispatch' AND classification='standard' AND liters<?`)
+    .bind(PUMP_ENABLEMENT_THRESHOLD_LITERS).first<{ total: number }>();
+  const migratedAt = new Date().toISOString();
+  await db.batch([
+    db.prepare(`UPDATE fuel_movements SET classification='pump_enablement'
+      WHERE movement_type='dispatch' AND classification='standard' AND liters<?`)
+      .bind(PUMP_ENABLEMENT_THRESHOLD_LITERS),
+    db.prepare("INSERT INTO fuel_history_meta(key,value) VALUES (?,?)")
+      .bind(PUMP_ENABLEMENT_CLASSIFICATION_MIGRATION_KEY, JSON.stringify({
+        migratedAt,
+        recategorized: Number(candidates?.total ?? 0),
+      })),
+  ]);
 }
 
 async function repairTransientReceipts(db: D1DatabaseLike) {
@@ -1053,7 +1307,7 @@ async function migrateSustainedReceiptDetector(db: D1DatabaseLike) {
       WHERE movement_type='receipt' AND detected_automatically=1 AND detection_status='accumulating'`),
     db.prepare(`UPDATE fuel_detection_state SET active_receipt_id=NULL,active_started_at=NULL,
       baseline_level_liters=last_level_liters,peak_level_liters=last_level_liters,
-      baseline_started_at=last_reading_at WHERE id=1`),
+      baseline_started_at=last_reading_at,warmup_started_at=NULL WHERE id=1`),
     db.prepare("INSERT INTO fuel_history_meta(key,value) VALUES (?,?)")
       .bind(DETECTOR_V2_MIGRATION_KEY, JSON.stringify({ migratedAt, removedAccumulating: Number(staleCandidates?.total ?? 0) })),
   ]);
@@ -1188,8 +1442,8 @@ async function seedFuelHistory(db: D1DatabaseLike) {
     )),
     db.prepare(`INSERT OR REPLACE INTO fuel_detection_state(
       id,capacity_liters,baseline_level_liters,last_level_liters,peak_level_liters,
-      active_receipt_id,active_started_at,baseline_started_at,telemetry_session_id,last_reading_at
-    ) VALUES (1,?,?,?,?,NULL,NULL,?,NULL,?)`).bind(
+      active_receipt_id,active_started_at,baseline_started_at,warmup_started_at,telemetry_session_id,last_reading_at
+    ) VALUES (1,?,?,?,?,NULL,NULL,?,NULL,NULL,?)`).bind(
       CAPACITY_LITERS, latest, latest, latest, "2026-08-10T14:30:00.000Z", "2026-08-10T14:30:00.000Z",
     ),
     ...(!seeded ? [db.prepare("INSERT INTO fuel_level_readings(occurred_at,level_liters,source) VALUES (?,?,?)")
@@ -1216,6 +1470,7 @@ function buildSeedMovements(): FuelMovement[] {
       liters: round1(received), openingLevel: round1(receiptOpening), closingLevel: level,
       source: "Sensor OCIO", reference: `AUTO-OCIO-${monthKey}`,
       detail: "Recepción detectada por aumento sostenido del nivel", detectedAutomatically: true, confidence: 0.99, status: "confirmed",
+      authorizationEvidence: "legacy", adoptionStage: null, assistedMode: false, equipmentIssue: null,
       reviewStatus: "approved", originalLiters: round1(received), documentReference: null,
       reviewedByUserId: null, reviewedByName: "Confirmación histórica", reviewedAt: null, reviewNote: null,
     });
@@ -1229,6 +1484,7 @@ function buildSeedMovements(): FuelMovement[] {
         liters: round1(opening - level), openingLevel: round1(opening), closingLevel: level,
         source: "PLC surtidor", reference: `TX-${monthKey}-${String(dispatchIndex + 1).padStart(3, "0")}`,
         detail: `${5 + dispatchIndex * 2} cargas trazables consolidadas`, detectedAutomatically: false, confidence: 1, status: "confirmed",
+        authorizationEvidence: "legacy", adoptionStage: null, assistedMode: false, equipmentIssue: null,
         reviewStatus: "not_required", originalLiters: null, documentReference: null,
         reviewedByUserId: null, reviewedByName: null, reviewedAt: null, reviewNote: null,
       });
@@ -1254,6 +1510,7 @@ function buildSeedMovements(): FuelMovement[] {
       id: `FD-RECENT-${index + 1}`, type: "dispatch", occurredAt, liters, openingLevel: round1(opening), closingLevel: level,
       classification: "standard",
       source: "PLC surtidor", reference, detail, detectedAutomatically: false, confidence: 1, status: "confirmed",
+      authorizationEvidence: "legacy", adoptionStage: null, assistedMode: false, equipmentIssue: null,
       reviewStatus: "not_required", originalLiters: null, documentReference: null,
       reviewedByUserId: null, reviewedByName: null, reviewedAt: null, reviewNote: null,
     });
@@ -1267,7 +1524,10 @@ function toMovement(row: Record<string, unknown>): FuelMovement {
     classification: row.classification === "pump_enablement" ? "pump_enablement" : "standard",
     occurredAt: String(row.occurredAt),
     liters: Number(row.liters), openingLevel: Number(row.openingLevel), closingLevel: Number(row.closingLevel),
-    source: String(row.source), reference: String(row.reference), detail: String(row.detail),
+    source: String(row.source), reference: String(row.reference),
+    legacyId: typeof row.legacyId === "string" && row.legacyId ? row.legacyId : null,
+    manualModeSessionId: typeof row.manualModeSessionId === "string" && row.manualModeSessionId ? row.manualModeSessionId : null,
+    detail: String(row.detail),
     operatorId: typeof row.operatorId === "string" && row.operatorId ? row.operatorId : null,
     operatorName: typeof row.operatorName === "string" && row.operatorName ? row.operatorName : null,
     equipmentId: typeof row.equipmentId === "string" && row.equipmentId ? row.equipmentId : null,

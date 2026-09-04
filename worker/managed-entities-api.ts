@@ -2,7 +2,7 @@ import { authenticatedUser, json, sameOrigin, type AuthEnvironment } from "./aut
 import { ensureManagedEntityStore, listManagedEntities, recordManagedAudit, type ManagedEntityType } from "./managed-entities-store";
 import { parsePermissions, type D1DatabaseLike, type Permission, type StoredUser } from "./user-store";
 import { readJsonBody, RequestBodyError } from "./request-body";
-import { ensureEquipmentEnrollmentStore, queueEquipmentRegistryRemoval } from "./equipment-enrollment-store";
+import { ensureEquipmentEnrollmentStore } from "./equipment-enrollment-store";
 
 const permissionByType: Record<ManagedEntityType, Permission> = {
   operators: "manage_operators",
@@ -81,11 +81,38 @@ async function createEntity(request: Request, db: D1DatabaseLike, actor: StoredU
 }
 
 async function updateEntity(request: Request, db: D1DatabaseLike, actor: StoredUser, type: ManagedEntityType, id: string) {
-  let body: { active?: unknown; archived?: unknown };
+  let body: { active?: unknown; archived?: unknown; name?: unknown; expiry?: unknown };
   try { body = await readJsonBody(request, 4096); } catch (error) { return bodyError(error); }
   const table = tableFor(type);
-  const existing = await db.prepare(`SELECT id, archived_at AS archivedAt FROM ${table} WHERE id=?`).bind(id).first<{ id: string; archivedAt: string | null }>();
+  const existing = await db.prepare(`SELECT id, archived_at AS archivedAt${type === "equipment" ? ",name,expiry" : ""} FROM ${table} WHERE id=?`).bind(id)
+    .first<{ id: string; archivedAt: string | null; name?: string; expiry?: string | null }>();
   if (!existing) return json({ error: "Registro no encontrado." }, 404);
+  if (type === "equipment" && Object.prototype.hasOwnProperty.call(body, "name")) {
+    const name = typeof body.name === "string" ? body.name.trim() : "";
+    if (name.length < 3 || name.length > 80) {
+      return json({ error: "El nombre del equipo debe tener entre 3 y 80 caracteres." }, 400);
+    }
+    await db.prepare("UPDATE managed_equipment SET name=?,updated_at=CURRENT_TIMESTAMP WHERE id=?")
+      .bind(name, id).run();
+    await recordManagedAudit(db, actor.id, "name_changed", type, id, {
+      previousName: existing.name,
+      name,
+    });
+    return json({ updated: true, name }, 200);
+  }
+  if (type === "equipment" && Object.prototype.hasOwnProperty.call(body, "expiry")) {
+    if (existing.archivedAt) return json({ error: "Restaura el equipo antes de modificar su período de validez." }, 409);
+    const expiry = futureInstant(body.expiry);
+    if (!expiry) return json({ error: "Selecciona un vencimiento futuro de hasta un año." }, 400);
+    await db.prepare(`UPDATE managed_equipment SET expiry=?,
+      condition=CASE WHEN condition='Permanente' THEN 'Temporal' ELSE condition END,
+      updated_at=CURRENT_TIMESTAMP WHERE id=?`).bind(expiry, id).run();
+    await recordManagedAudit(db, actor.id, "validity_changed", type, id, {
+      previousExpiry: existing.expiry ?? null,
+      expiry,
+    });
+    return json({ updated: true, expiry }, 200);
+  }
   if (typeof body.archived === "boolean") {
     if (body.archived) {
       await db.prepare(`UPDATE ${table} SET archived_at=CURRENT_TIMESTAMP,active=0,updated_at=CURRENT_TIMESTAMP WHERE id=?`).bind(id).run();
@@ -130,14 +157,16 @@ async function permanentlyDeleteEntity(db: D1DatabaseLike, actor: StoredUser, ty
     const relation = await db.prepare(`SELECT id FROM managed_associations WHERE ${column}=? LIMIT 1`).bind(id).first<{ id: string }>();
     if (relation) return json({ error: "Elimina primero sus asociaciones históricas para conservar la integridad." }, 409);
   }
-  await recordManagedAudit(db, actor.id, "permanently_deleted", type, id);
+  await recordManagedAudit(db, actor.id, "permanently_deleted", type, id,
+    type === "equipment" && existing.module && existing.module !== "Sin módulo"
+      ? { moduleId: existing.module, factoryIdentityPreserved: true }
+      : {});
   if (type === "operators") {
     await db.prepare(`UPDATE managed_rfid_credentials SET operator_id=NULL,credential_active=0,
       updated_at=CURRENT_TIMESTAMP WHERE operator_id=?`).bind(id).run();
   }
   if (type === "equipment" && existing.module && existing.module !== "Sin módulo") {
     await ensureEquipmentEnrollmentStore(db);
-    await queueEquipmentRegistryRemoval(db, existing.module, id, actor.id);
     await db.prepare("DELETE FROM equipment_enrollment_candidates WHERE module_id=?").bind(existing.module).run();
   }
   await db.prepare(`DELETE FROM ${table} WHERE id=?`).bind(id).run();
@@ -176,7 +205,9 @@ function formatChileanRut(value: string) {
 function futureInstant(value: unknown) {
   if (typeof value !== "string" || !value) return null;
   const instant = new Date(value);
-  return Number.isFinite(instant.getTime()) && instant.getTime() > Date.now() ? instant.toISOString() : null;
+  const maximum = Date.now() + 366 * 24 * 60 * 60 * 1000;
+  return Number.isFinite(instant.getTime()) && instant.getTime() > Date.now() && instant.getTime() <= maximum
+    ? instant.toISOString() : null;
 }
 function bodyError(error: unknown) {
   if (error instanceof RequestBodyError) return json({ error: error.message }, error.status);

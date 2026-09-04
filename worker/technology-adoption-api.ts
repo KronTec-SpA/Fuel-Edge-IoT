@@ -4,6 +4,7 @@ import { ensureFuelHistoryStore } from "./fuel-history-store";
 import { readJsonBody, RequestBodyError } from "./request-body";
 import { parsePermissions } from "./user-store";
 import {
+  deactivateTechnologyAdoptionProgram,
   ensureTechnologyAdoptionStore,
   startTechnologyAdoptionProgram,
   technologyAdoptionDashboard,
@@ -53,6 +54,20 @@ export async function handleTechnologyAdoptionRequest(request: Request, env: Tec
     } catch (error) {
       if (error instanceof TechnologyAdoptionConflict) return json({ error: error.message }, 409);
       return json({ error: "No fue posible iniciar la adopción tecnológica." }, 500);
+    }
+  }
+  if (url.pathname === "/api/technology-adoption/deactivate" && request.method === "POST") {
+    if (!sameOrigin(request)) return json({ error: "Solicitud no permitida." }, 403);
+    if (!(["master", "administrator"] as string[]).includes(actor.role)
+      || !parsePermissions(actor.permissions).includes("manage_system")) {
+      return json({ error: "Sólo administración puede desactivar la adopción tecnológica." }, 403);
+    }
+    try {
+      const settings = await deactivateTechnologyAdoptionProgram(env.DB, siteId, { id: actor.id });
+      return json({ settings, dashboard: await technologyAdoptionDashboard(env.DB, siteId) }, 200);
+    } catch (error) {
+      if (error instanceof TechnologyAdoptionConflict) return json({ error: error.message }, 409);
+      return json({ error: "No fue posible desactivar la adopción tecnológica." }, 500);
     }
   }
   if (url.pathname === "/api/technology-adoption" && request.method === "PUT") {

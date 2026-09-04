@@ -23,7 +23,7 @@ export async function handleNfcEnrollmentRequest(request: Request, env: NfcEnvir
   await ensureNfcEnrollmentStore(env.DB);
 
   if (url.pathname === "/api/nfc-enrollment/commands/next" && request.method === "POST") {
-    if (!edgeAuthorized(request, env)) return json({ error: "Validador NFC no autorizado." }, 401);
+    if (!edgeAuthorized(request, env)) return json({ error: "Validador RFID no autorizado." }, 401);
     const [identificationCommand, command, credentials] = await Promise.all([
       takeNfcIdentificationCommand(env.DB),
       takeNfcEnrollmentCommand(env.DB),
@@ -33,10 +33,10 @@ export async function handleNfcEnrollmentRequest(request: Request, env: NfcEnvir
   }
   const resultMatch = url.pathname.match(/^\/api\/nfc-enrollment\/commands\/([^/]+)\/result$/u);
   if (resultMatch && request.method === "POST") {
-    if (!edgeAuthorized(request, env)) return json({ error: "Validador NFC no autorizado." }, 401);
+    if (!edgeAuthorized(request, env)) return json({ error: "Validador RFID no autorizado." }, 401);
     try {
       const body = await readJsonBody(request, 4096) as { success?: unknown; credentialId?: unknown; error?: unknown };
-      if (typeof body.success !== "boolean") return json({ error: "Resultado NFC inválido." }, 400);
+      if (typeof body.success !== "boolean") return json({ error: "Resultado RFID inválido." }, 400);
       const result = await completeNfcEnrollment(env.DB, decodeURIComponent(resultMatch[1]), {
         success: body.success,
         credentialId: typeof body.credentialId === "string" ? body.credentialId : undefined,
@@ -115,5 +115,5 @@ function enrollmentError(error: unknown) {
   }
   if (error instanceof NfcEnrollmentConflict) return json({ error: error.message }, 409);
   if (error instanceof RequestBodyError) return json({ error: error.message }, error.status);
-  return json({ error: "No fue posible completar el enrolamiento NFC." }, 500);
+  return json({ error: "No fue posible completar el enrolamiento RFID." }, 500);
 }

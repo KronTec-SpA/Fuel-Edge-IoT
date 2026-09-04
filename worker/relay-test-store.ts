@@ -31,7 +31,7 @@ export async function ensureRelayTestStore(db: D1DatabaseLike) {
 async function expireRelayTests(db: D1DatabaseLike) {
   await ensureRelayTestStore(db);
   await db.batch([
-    db.prepare(`UPDATE pump_test_transactions SET status='expired',completed_at=CURRENT_TIMESTAMP,error='La Raspberry no tomó el comando dentro de la ventana segura.'
+    db.prepare(`UPDATE pump_test_transactions SET status='expired',completed_at=CURRENT_TIMESTAMP,error='El PLC no tomó el comando dentro de la ventana segura.'
       WHERE status='pending' AND datetime(expires_at)<=datetime('now')`),
     db.prepare(`UPDATE pump_test_transactions SET status='failed',completed_at=CURRENT_TIMESTAMP,error='No se recibió el cierre confirmado de la prueba.'
       WHERE status='running' AND datetime(expires_at)<=datetime('now')`),
@@ -102,7 +102,7 @@ export async function completeRelayTest(
     throw new RelayTestConflict("La prueba de bomba ya no está activa.");
   }
   const status = result.success ? "completed" : "failed";
-  const error = result.success ? null : (result.error?.trim() || "La Raspberry interrumpió la prueba.").slice(0, 200);
+  const error = result.success ? null : (result.error?.trim() || "El PLC interrumpió la prueba.").slice(0, 200);
   await db.prepare(`UPDATE pump_test_transactions SET status=?,error=?,completed_at=CURRENT_TIMESTAMP WHERE id=?`)
     .bind(status, error, commandId).run();
   await audit(db, result.success ? "pump_test_transaction_completed" : "pump_test_transaction_interrupted", command.actorUserId, null, {

@@ -1,7 +1,7 @@
 # Concha y Toro - Monitoreo Combustible
 
 Aplicación web local para la operación diaria del sistema IoT de trazabilidad de
-combustible. Está diseñada para ejecutarse en la misma Raspberry PLC y seguir
+combustible. Está diseñada para ejecutarse en el mismo PLC y seguir
 disponible sin Internet.
 
 ## Alcance de esta entrega
@@ -10,15 +10,15 @@ disponible sin Internet.
 - Mapa operacional de MIMs enlazados al validador, con radar por RSSI Bluetooth.
 - Historial de cargas y combustible con recepciones, despachos, nivel del estanque,
   filtros temporales, agregación por día/semana/mes/año y exportación CSV.
-- Gestión local de operadores y estados de credenciales NFC.
+- Gestión local de operadores y estados de credenciales RFID.
 - Inventario de equipos permanentes, temporales y externos.
 - Asociaciones operador–equipo y vigencias.
-- Flujo guiado de enrolamiento NFC normal o como tarjeta maestra de emergencia.
+- Flujo guiado de enrolamiento RFID normal o como tarjeta maestra de emergencia.
   El sistema mantiene una sola maestra activa y exige aprobación explícita para
   desactivar la anterior antes de abrir el enrolamiento de reemplazo.
 - Detección y enrolamiento cero-touch de módulos XIAO por BLE: se asignan nombre,
   tipo (Tractor, Trilladora, Camión, Camioneta u Otro) y vencimiento; el fundo proviene de la
-  Raspberry que lo detecta.
+  PLC que lo detecta.
 - Reasignación entre fundos sin reflashear: al vencer se bloquea una carga normal
   y el módulo se renueva físicamente por BLE con una nueva vigencia auditable.
 - Alertas con log de acciones, criticidad operacional y reaperturas auditables.
@@ -64,7 +64,7 @@ con permisos `0600`. Para desarrollo local se puede usar como salida
 `web/.dev.vars`, que está excluido del repositorio.
 
 El mismo proceso entrega un código de recuperación que debe guardarse fuera de
-la Raspberry. Los usuarios normales reciben una clave temporal de un solo uso y
+el PLC. Los usuarios normales reciben una clave temporal de un solo uso y
 deben reemplazarla en su primer ingreso. Si se pierde también el código maestro,
 se reprovisiona físicamente la cuenta y se reinicia el servicio; la versión de
 bootstrap invalida la clave anterior sin borrar la auditoría ni las demás cuentas.
@@ -77,7 +77,7 @@ pnpm lint
 pnpm test
 ```
 
-## Ejecución en la Raspberry
+## Ejecución en el PLC
 
 Después de instalar dependencias y ejecutar `pnpm build`, el servidor de
 producción se inicia con:

@@ -117,6 +117,53 @@ export async function startTechnologyAdoptionProgram(
   return technologyAdoptionSettings(db, siteId);
 }
 
+export async function deactivateTechnologyAdoptionProgram(
+  db: D1DatabaseLike,
+  siteId: string,
+  actor: { id: string },
+) {
+  const current = await technologyAdoptionSettings(db, siteId);
+  if (current.programStatus !== "active") {
+    throw new TechnologyAdoptionConflict(current.programStatus === "completed"
+      ? "El programa de adopción tecnológica ya fue completado."
+      : "La etapa de adopción tecnológica no está activa.");
+  }
+  await ensureManualModeStore(db);
+  const openAssistedSession = await db.prepare(`SELECT id FROM manual_mode_schedules
+    WHERE purpose='adoption_assisted' AND status IN ('scheduled','active') LIMIT 1`).first<{ id: string }>();
+  if (openAssistedSession) {
+    throw new TechnologyAdoptionConflict("Cancela la sesión asistida antes de desactivar la adopción tecnológica.");
+  }
+  const revision = current.revision + 1;
+  const note = "Programa desactivado por administración; se restaura la trazabilidad completa.";
+  const statements = [
+    db.prepare(`UPDATE technology_adoption_settings SET
+        stage='full',program_status='inactive',revision=?,completed_at=NULL,
+        stage_started_at=CURRENT_TIMESTAMP,review_at=NULL,updated_by=?,updated_at=CURRENT_TIMESTAMP,note=?
+      WHERE site_id=? AND program_status='active'`).bind(revision, actor.id, note, siteId),
+  ];
+  if (current.stage !== "full") {
+    statements.push(db.prepare(`INSERT INTO technology_adoption_transitions(
+      id,site_id,from_stage,to_stage,reason,actor_user_id
+    ) VALUES (?,?,?,?,?,?)`).bind(
+      `adoption-transition-${crypto.randomUUID()}`,
+      siteId,
+      current.stage,
+      "full",
+      note,
+      actor.id,
+    ));
+  }
+  await db.batch(statements);
+  await audit(db, "technology_adoption_deactivated", actor.id, null, {
+    siteId,
+    fromStage: current.stage,
+    toStage: "full",
+    revision,
+  });
+  return technologyAdoptionSettings(db, siteId);
+}
+
 export async function updateTechnologyAdoptionSettings(
   db: D1DatabaseLike,
   siteId: string,

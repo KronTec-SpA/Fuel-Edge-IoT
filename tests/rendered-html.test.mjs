@@ -82,6 +82,9 @@ test("supports prioritized alert follow-up with auditable comments", async () =>
   assert.match(source, /Reabrir como nueva alerta/i);
   assert.match(source, /Reabierta · ciclo/i);
   assert.match(source, /Filtrar alertas por origen/i);
+  assert.match(source, /Abre la alerta y define su criticidad/i);
+  assert.match(styles, /\.alert-guide li::before[^}]*content:\s*"\\2192"/is);
+  assert.doesNotMatch(source, /Cada reapertura inicia un ciclo separado/i);
   assert.match(source, /function AuthVersion\(\).*SITE_VERSION/s);
   assert.match(styles, /alert-reopened-badge/i);
   assert.doesNotMatch(styles, /auth-card::after|V\.1\.\d+/i);
@@ -109,6 +112,47 @@ test("keeps update notes and large alert counts compact in the header", async ()
   assert.match(styles, /\.whats-new-panel\s*\{/i);
 });
 
+test("keeps the fixed header aligned when horizontal space is constrained", async () => {
+  const styles = await readFile(new URL("../app/globals.css", import.meta.url), "utf8");
+  assert.match(styles, /\.app-main[^}]*container-name:\s*app-main[^}]*container-type:\s*inline-size/is);
+  assert.match(styles, /\.topbar-left[^}]*overflow:\s*hidden/is);
+  assert.match(styles, /\.adoption-site-tag[^}]*overflow:\s*hidden/is);
+  assert.match(styles, /\.topbar-center[^}]*overflow:\s*hidden/is);
+  assert.match(styles, /\.profile-wrap[^}]*min-width:\s*0[^}]*flex:\s*0 1 auto/is);
+  assert.match(styles, /\.site-location strong, \.profile-button strong[^}]*text-overflow:\s*ellipsis[^}]*white-space:\s*nowrap/is);
+  assert.match(styles, /\.site-indicator[^}]*flex:\s*0 0 26px/is);
+  assert.match(styles, /@container app-main \(max-width:\s*1180px\)[\s\S]*?\.adoption-site-tag small, \.profile-button small\s*\{\s*display:\s*none;/i);
+  assert.match(styles, /@container app-main \(max-width:\s*1040px\)[\s\S]*?\.adoption-site-tag > span:last-child, \.profile-copy, \.topbar-edge-state\s*\{\s*display:\s*none;/i);
+  assert.match(styles, /@container app-main \(max-width:\s*900px\)[\s\S]*?\.topbar-center\s*\{\s*display:\s*none;/i);
+});
+
+test("closes header menus outside and optically centers the alert symbol", async () => {
+  const [source, styles] = await Promise.all([
+    readFile(new URL("../app/page.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/globals.css", import.meta.url), "utf8"),
+  ]);
+  assert.match(source, /document\.addEventListener\("pointerdown", closeHeaderMenusOutside\)/i);
+  assert.match(source, /profileWrapRef\.current\?\.contains\(event\.target\)/i);
+  assert.match(source, /whatsNewWrapRef\.current\?\.contains\(event\.target\)/i);
+  assert.match(styles, /\.notification-button > span::before[^}]*transform:\s*translate\(-50%,\s*-1px\)/is);
+});
+
+test("uses RFID and PLC as the only public hardware nomenclature", async () => {
+  const files = await Promise.all([
+    readFile(new URL("../app/page.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../worker/nfc-enrollment-api.ts", import.meta.url), "utf8"),
+    readFile(new URL("../worker/nfc-identification-api.ts", import.meta.url), "utf8"),
+    readFile(new URL("../worker/equipment-enrollment-store.ts", import.meta.url), "utf8"),
+    readFile(new URL("../worker/relay-test-api.ts", import.meta.url), "utf8"),
+    readFile(new URL("../worker/relay-test-store.ts", import.meta.url), "utf8"),
+  ]);
+  const publicCopy = files.join("\n");
+  assert.match(publicCopy, /RFID/i);
+  assert.match(publicCopy, /PLC/i);
+  assert.doesNotMatch(publicCopy, /\bNFC\b|Raspberry(?: Pi)?/);
+  assert.match(files[0], /function formatCredentialId[\s\S]*replace\(\/\^nfc-\/iu, "RFID-"\)/i);
+});
+
 test("charts expose liters, independent scales, and the tank-level trend", async () => {
   const [source, styles] = await Promise.all([
     readFile(new URL("../app/page.tsx", import.meta.url), "utf8"),
@@ -130,6 +174,21 @@ test("shows a healthy active manual mode as an operational green state", async (
   assert.match(source, /manualModeActive\s*\?\s*"Modo manual activo"/s);
   assert.match(source, /ready-ring \$\{operational \? "" : "offline"\}/i);
   assert.match(source, /R0\.1 permanece habilitado durante la ventana manual/i);
+});
+
+test("moves overview control notes into an information popover", async () => {
+  const [source, styles] = await Promise.all([
+    readFile(new URL("../app/page.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/globals.css", import.meta.url), "utf8"),
+  ]);
+  assert.match(source, /<details className="overview-info">/i);
+  assert.match(source, /aria-label="Ver notas de control"/i);
+  assert.match(source, /Control local en espera/i);
+  assert.match(source, /Control local en el borde/i);
+  assert.doesNotMatch(source, /className="safety-note"|Control seguro en el borde/i);
+  assert.match(source, /automaticReady\s*\?\s*null/i);
+  assert.match(styles, /\.overview-info-popover\s*\{/i);
+  assert.doesNotMatch(styles, /\.safety-note\s*\{/i);
 });
 
 test("keeps an alert open through multiple updates before resolving it", async () => {
@@ -296,6 +355,10 @@ test("keeps transaction filters functional and the single location static", asyn
   assert.match(source, /onClick=\{\(\) => onStatus\(filter\.value\)\}/i);
   assert.match(source, /matchesStatus = transactionStatus === "Todas" \|\| item\.status === transactionStatus/i);
   assert.match(source, /allItems\.filter\(\(item\) => item\.status === filter\.value\)/i);
+  assert.match(source, /useState<TransactionStatusFilter>\("Completada"\)/i);
+  assert.match(source, /if \(next === "transactions"\) setTransactionStatus\("Completada"\)/i);
+  assert.ok(source.indexOf('{ label: "Completadas"') < source.indexOf('{ label: "Todas"'));
+  assert.match(source, /id: item\.id,/i);
   assert.match(source, /<div className="site-location" aria-label="Locación">/i);
   assert.doesNotMatch(source, /Conexión edge protegida|Sesión privada y con vencimiento|Las sesiones se validan dentro de la Raspberry Pi/i);
 });
@@ -335,7 +398,12 @@ test("provides a persistent fuel history with automatic receipt detection", asyn
   assert.match(store, /riseFromBaseline >= RECEIPT_THRESHOLD_LITERS/i);
   assert.match(store, /STABLE_PLATEAU_TOLERANCE_PERCENT = 2/i);
   assert.match(store, /CONFIRMATION_MINUTES = 10/i);
+  assert.match(store, /RECEIPT_CONTINUATION_MINUTES = 90/i);
+  assert.match(store, /warmup_started_at/i);
+  assert.match(store, /Continuación sostenida consolidada/i);
   assert.match(store, /Aumento breve seguido de nivel sostenido/i);
+  assert.match(page, /Carga en curso · flujo K24 detectado/i);
+  assert.match(page, /Recepción candidata en curso/i);
   assert.match(page, /function clientRequestId/i);
   assert.match(page, /typeof webCrypto\.randomUUID === "function"/i);
   assert.match(page, /typeof webCrypto\.getRandomValues === "function"/i);
@@ -591,6 +659,56 @@ test("resets load and level data only after administrator password confirmation"
     assert.equal((await newBaseline.json()).detection.status, "initialized");
     assert.equal((await database.prepare("SELECT COUNT(*) AS total FROM fuel_movements").first()).total, 0);
 
+    const completed = await worker.fetch(new Request("http://localhost/api/system-settings/commissioning", {
+      method: "POST",
+      headers: { cookie, origin: "http://localhost", "content-type": "application/json" },
+      body: JSON.stringify({ action: "complete", password }),
+    }), env, executionContext);
+    assert.equal(completed.status, 200);
+    const completedBody = await completed.json();
+    assert.equal(completedBody.commissioning.status, "completed");
+    assert.equal(completedBody.commissioning.cycle, 1);
+
+    const resetAfterCompletion = await worker.fetch(new Request("http://localhost/api/fuel-history/reset", {
+      method: "POST",
+      headers: { cookie, origin: "http://localhost", "content-type": "application/json" },
+      body: JSON.stringify({ password }),
+    }), env, executionContext);
+    assert.equal(resetAfterCompletion.status, 409);
+    assert.match((await resetAfterCompletion.json()).error, /puesta en marcha está finalizada/i);
+    assert.equal((await database.prepare("SELECT COUNT(*) AS total FROM fuel_level_readings").first()).total, 1);
+
+    const reopened = await worker.fetch(new Request("http://localhost/api/system-settings/commissioning", {
+      method: "POST",
+      headers: { cookie, origin: "http://localhost", "content-type": "application/json" },
+      body: JSON.stringify({
+        action: "reopen",
+        password,
+        reason: "Recepción rechazó la calibración final del sensor de nivel.",
+      }),
+    }), env, executionContext);
+    assert.equal(reopened.status, 200);
+    const reopenedBody = await reopened.json();
+    assert.equal(reopenedBody.commissioning.status, "in_progress");
+    assert.equal(reopenedBody.commissioning.cycle, 2);
+    assert.equal((await database.prepare("SELECT COUNT(*) AS total FROM fuel_level_readings").first()).total, 1);
+    const lifecycleAudits = await database.prepare(`SELECT event FROM web_access_audit
+      WHERE event IN ('commissioning_completed','commissioning_reopened') ORDER BY id`).all();
+    assert.deepEqual(lifecycleAudits.results.map((entry) => entry.event), ["commissioning_completed", "commissioning_reopened"]);
+
+    await database.prepare("UPDATE web_users SET role='administrator',is_master=0 WHERE id='usr-master'").run();
+    const administratorView = await worker.fetch(new Request("http://localhost/api/system-settings/commissioning", {
+      headers: { cookie },
+    }), env, executionContext);
+    assert.equal(administratorView.status, 403);
+    const administratorReset = await worker.fetch(new Request("http://localhost/api/fuel-history/reset", {
+      method: "POST",
+      headers: { cookie, origin: "http://localhost", "content-type": "application/json" },
+      body: JSON.stringify({ password }),
+    }), env, executionContext);
+    assert.equal(administratorReset.status, 403);
+    assert.match((await administratorReset.json()).error, /usuario maestro del proveedor/i);
+
     const [page, styles, api] = await Promise.all([
       readFile(new URL("../app/page.tsx", import.meta.url), "utf8"),
       readFile(new URL("../app/globals.css", import.meta.url), "utf8"),
@@ -599,8 +717,68 @@ test("resets load and level data only after administrator password confirmation"
     assert.match(page, /Reiniciar base de datos/i);
     assert.match(page, /Clave de administrador/i);
     assert.match(page, /Los operadores, equipos, asociaciones y credenciales no serán eliminados/i);
-    assert.match(styles, /\.fuel-reset-card/i);
+    assert.match(page, /Finalizar PEM/i);
+    assert.match(page, /Reabrir por rechazo/i);
+    assert.match(page, /canManageCommissioning=\{currentUser\.roleCode === "master"/i);
+    assert.match(styles, /\.commissioning-card/i);
     assert.match(api, /confirmAdministratorPassword/i);
+  } finally {
+    delete globalThis.__FUEL_EDGE_LOCAL_DB__;
+    database.close();
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("migrates an already-started field installation as completed and hides the reset lifecycle", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "fuel-field-commissioning-migration-"));
+  const database = createLocalD1(join(directory, "web.sqlite3"));
+  globalThis.__FUEL_EDGE_LOCAL_DB__ = database;
+  try {
+    const worker = await loadWorker();
+    const password = "correct horse battery staple";
+    const env = {
+      ...authEnv("master@example.test", password),
+      AUTH_BOOTSTRAP_VERSION: "test-field-commissioning-migration-1",
+      FUEL_SENSOR_INGEST_KEY: randomBytes(32).toString("base64url"),
+      FUEL_SITE_ID: "fundo-santa-isabel",
+    };
+    const login = await worker.fetch(new Request("http://localhost/api/auth/login", {
+      method: "POST",
+      headers: { "content-type": "application/json", origin: "http://localhost" },
+      body: JSON.stringify({ email: "master@example.test", password }),
+    }), env, executionContext);
+    assert.equal(login.status, 200);
+    const cookie = (login.headers.get("set-cookie") ?? "").split(";", 1)[0];
+    const initialized = await worker.fetch(new Request("http://localhost/api/fuel-history/status", {
+      headers: { cookie },
+    }), env, executionContext);
+    assert.equal(initialized.status, 200);
+    const legacyResetAt = new Date(Date.now() - 60_000).toISOString();
+    await database.prepare("INSERT INTO fuel_history_meta(key,value) VALUES ('field_reset_at',?)")
+      .bind(legacyResetAt).run();
+
+    const response = await worker.fetch(new Request("http://localhost/api/system-settings/commissioning", {
+      headers: { cookie },
+    }), env, executionContext);
+    assert.equal(response.status, 200);
+    const body = await response.json();
+    assert.deepEqual(body.commissioning, {
+      siteId: "fundo-santa-isabel",
+      status: "completed",
+      cycle: 1,
+      startedAt: legacyResetAt,
+      completedAt: legacyResetAt,
+      reopenedAt: null,
+      reopenReason: null,
+      updatedAt: body.commissioning.updatedAt,
+    });
+
+    const blockedReset = await worker.fetch(new Request("http://localhost/api/fuel-history/reset", {
+      method: "POST",
+      headers: { cookie, origin: "http://localhost", "content-type": "application/json" },
+      body: JSON.stringify({ password }),
+    }), env, executionContext);
+    assert.equal(blockedReset.status, 409);
   } finally {
     delete globalThis.__FUEL_EDGE_LOCAL_DB__;
     database.close();
@@ -843,6 +1021,26 @@ test("archives managed records and restricts permanent database cleanup", async 
   assert.match(api, /No tienes permiso para consultar estos registros/i);
   assert.match(api, /El registro debe estar archivado antes de eliminarlo definitivamente/i);
   assert.match(api, /Elimina primero sus asociaciones históricas/i);
+  assert.match(api, /name_changed/i);
+  assert.match(api, /validity_changed/i);
+  assert.match(api, /factoryIdentityPreserved/i);
+  assert.match(page, /Editar nombre/i);
+  assert.match(page, /function EquipmentRenameForm/i);
+  assert.match(page, /Modificar período de validez/i);
+  const equipmentView = page.match(/function EquipmentView[\s\S]*?function AssociationsView/)?.[0] ?? "";
+  const equipmentDetail = page.match(/function EquipmentDetail[\s\S]*?function initials/)?.[0] ?? "";
+  assert.match(equipmentView, /equipment-detail-link[^>]*>[\s\S]*?Ver ficha/i);
+  assert.doesNotMatch(equipmentView, /Editar nombre|Modificar período de validez|Archivar equipo|Desactivar equipo|Eliminar definitivamente/i);
+  assert.match(equipmentDetail, /Editar nombre/i);
+  assert.match(equipmentDetail, /Modificar período de validez/i);
+  assert.match(equipmentDetail, /Desactivar equipo/i);
+  assert.match(equipmentDetail, /Archivar equipo/i);
+  assert.match(equipmentDetail, /Restaurar equipo/i);
+  assert.match(equipmentDetail, /Eliminar definitivamente/i);
+  assert.match(page, /MIM \{item\.module\} por caducar en 24 horas/i);
+  assert.match(page, /mantén presionado 20 segundos/i);
+  assert.doesNotMatch(page, /mantén presionado 8 segundos/i);
+  assert.match(page, /La identidad segura del MIM se conservará/i);
   assert.match(store, /managed_operators/i);
   assert.match(store, /managed_equipment/i);
   assert.match(store, /managed_associations/i);
@@ -850,7 +1048,73 @@ test("archives managed records and restricts permanent database cleanup", async 
   assert.match(store, /managed_store_meta/i);
 });
 
-test("permanently deleting equipment queues and confirms removal from the MIM identifier", async () => {
+test("shortens and extends a MIM validity period with an audited immediate update", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "fuel-mim-validity-"));
+  const database = createLocalD1(join(directory, "web.sqlite3"));
+  globalThis.__FUEL_EDGE_LOCAL_DB__ = database;
+  try {
+    const worker = await loadWorker();
+    const env = {
+      ...authEnv("master@example.test", "correct horse battery staple"),
+      AUTH_BOOTSTRAP_VERSION: "test-mim-validity-1",
+      FUEL_SENSOR_INGEST_KEY: randomBytes(32).toString("base64url"),
+    };
+    const login = await worker.fetch(new Request("http://localhost/api/auth/login", {
+      method: "POST",
+      headers: { "content-type": "application/json", origin: "http://localhost" },
+      body: JSON.stringify({ email: "master@example.test", password: "correct horse battery staple" }),
+    }), env, executionContext);
+    const cookie = (login.headers.get("set-cookie") ?? "").split(";", 1)[0];
+    const browserHeaders = { cookie, origin: "http://localhost", "content-type": "application/json" };
+    const initialExpiry = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
+    const created = await worker.fetch(new Request("http://localhost/api/managed-entities/equipment", {
+      method: "POST", headers: browserHeaders,
+      body: JSON.stringify({ name: "MIM con vigencia", kind: "Tractor", condition: "Temporal", module: "mim-validity-01", siteId: "campo-prueba", expiry: initialExpiry }),
+    }), env, executionContext);
+    assert.equal(created.status, 201);
+    const equipmentId = (await created.json()).id;
+
+    const shortenedExpiry = new Date(Date.now() + 2 * 24 * 60 * 60 * 1000).toISOString();
+    const shortened = await worker.fetch(new Request(`http://localhost/api/managed-entities/equipment/${equipmentId}`, {
+      method: "PATCH", headers: browserHeaders, body: JSON.stringify({ expiry: shortenedExpiry }),
+    }), env, executionContext);
+    assert.equal(shortened.status, 200);
+    assert.equal((await shortened.json()).expiry, shortenedExpiry);
+
+    const extendedExpiry = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
+    const extended = await worker.fetch(new Request(`http://localhost/api/managed-entities/equipment/${equipmentId}`, {
+      method: "PATCH", headers: browserHeaders, body: JSON.stringify({ expiry: extendedExpiry }),
+    }), env, executionContext);
+    assert.equal(extended.status, 200);
+    assert.equal((await extended.json()).expiry, extendedExpiry);
+
+    const stored = await database.prepare("SELECT expiry FROM managed_equipment WHERE id=?").bind(equipmentId).first();
+    assert.equal(stored.expiry, extendedExpiry);
+    const audit = await database.prepare("SELECT event,metadata FROM managed_entity_audit WHERE entity_id=? ORDER BY id DESC LIMIT 1").bind(equipmentId).first();
+    assert.equal(audit.event, "validity_changed");
+    assert.deepEqual(JSON.parse(audit.metadata), { previousExpiry: shortenedExpiry, expiry: extendedExpiry });
+
+    const authorization = await worker.fetch(new Request("http://localhost/api/equipment-enrollment/authorization/resolve", {
+      method: "POST",
+      headers: { "content-type": "application/json", "x-edge-sensor-key": env.FUEL_SENSOR_INGEST_KEY },
+      body: JSON.stringify({ operatorId: "operator-test", equipmentId, moduleId: "mim-validity-01", siteId: "campo-prueba" }),
+    }), env, executionContext);
+    assert.equal(authorization.status, 200);
+    assert.equal((await authorization.json()).equipment.assignmentValidUntil, extendedExpiry);
+
+    const invalid = await worker.fetch(new Request(`http://localhost/api/managed-entities/equipment/${equipmentId}`, {
+      method: "PATCH", headers: browserHeaders,
+      body: JSON.stringify({ expiry: new Date(Date.now() - 60_000).toISOString() }),
+    }), env, executionContext);
+    assert.equal(invalid.status, 400);
+  } finally {
+    delete globalThis.__FUEL_EDGE_LOCAL_DB__;
+    database.close();
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("renames equipment and preserves the factory MIM identity when deleting its assignment", async () => {
   const directory = await mkdtemp(join(tmpdir(), "fuel-mim-removal-"));
   const database = createLocalD1(join(directory, "web.sqlite3"));
   globalThis.__FUEL_EDGE_LOCAL_DB__ = database;
@@ -874,6 +1138,20 @@ test("permanently deleting equipment queues and confirms removal from the MIM id
     }), env, executionContext);
     assert.equal(created.status, 201);
     const equipmentId = (await created.json()).id;
+    const renamed = await worker.fetch(new Request(`http://localhost/api/managed-entities/equipment/${equipmentId}`, {
+      method: "PATCH", headers: browserHeaders, body: JSON.stringify({ name: "MIM reutilizable renombrado" }),
+    }), env, executionContext);
+    assert.equal(renamed.status, 200);
+    assert.equal((await renamed.json()).name, "MIM reutilizable renombrado");
+    assert.equal((await database.prepare("SELECT name FROM managed_equipment WHERE id=?").bind(equipmentId).first()).name, "MIM reutilizable renombrado");
+    assert.equal((await database.prepare("SELECT event FROM managed_entity_audit WHERE entity_id=? ORDER BY id DESC LIMIT 1").bind(equipmentId).first()).event, "name_changed");
+
+    const edgeHeaders = { "content-type": "application/json", "x-edge-sensor-key": env.FUEL_SENSOR_INGEST_KEY };
+    const firstSighting = await worker.fetch(new Request("http://localhost/api/equipment-enrollment/sightings", {
+      method: "POST", headers: edgeHeaders,
+      body: JSON.stringify({ moduleId: "mim-remove-01", siteId: "campo-prueba", deviceName: "MIM reutilizable renombrado", equipmentId, firmware: "0.6.0", rssi: -51, claimed: true, occurredAt: new Date().toISOString() }),
+    }), env, executionContext);
+    assert.equal(firstSighting.status, 201);
     assert.equal((await worker.fetch(new Request(`http://localhost/api/managed-entities/equipment/${equipmentId}`, {
       method: "PATCH", headers: browserHeaders, body: JSON.stringify({ archived: true }),
     }), env, executionContext)).status, 200);
@@ -881,21 +1159,28 @@ test("permanently deleting equipment queues and confirms removal from the MIM id
       method: "DELETE", headers: browserHeaders,
     }), env, executionContext)).status, 200);
 
-    const edgeHeaders = { "content-type": "application/json", "x-edge-sensor-key": env.FUEL_SENSOR_INGEST_KEY };
     const next = await worker.fetch(new Request("http://localhost/api/equipment-enrollment/removals/next", {
       method: "POST", headers: edgeHeaders, body: "{}",
     }), env, executionContext);
     assert.equal(next.status, 200);
-    const command = (await next.json()).command;
-    assert.equal(command.moduleId, "mim-remove-01");
-    const completed = await worker.fetch(new Request(`http://localhost/api/equipment-enrollment/removals/${command.id}/result`, {
-      method: "POST", headers: edgeHeaders, body: JSON.stringify({ success: true }),
+    assert.equal((await next.json()).command, null);
+    assert.equal((await database.prepare("SELECT COUNT(*) AS count FROM equipment_registry_removals WHERE module_id=?").bind("mim-remove-01").first()).count, 0);
+    assert.equal(await database.prepare("SELECT module_id FROM equipment_enrollment_candidates WHERE module_id=?").bind("mim-remove-01").first(), null);
+
+    const resetSighting = await worker.fetch(new Request("http://localhost/api/equipment-enrollment/sightings", {
+      method: "POST", headers: edgeHeaders,
+      body: JSON.stringify({ moduleId: "mim-remove-01", siteId: "campo-prueba", deviceName: null, equipmentId: null, firmware: "0.6.0", rssi: -49, claimed: false, occurredAt: new Date().toISOString() }),
     }), env, executionContext);
-    assert.equal(completed.status, 200);
-    assert.equal((await completed.json()).completed, true);
-    const stored = await database.prepare("SELECT status FROM equipment_registry_removals WHERE id=?")
-      .bind(command.id).first();
-    assert.equal(stored.status, "completed");
+    assert.equal(resetSighting.status, 201);
+    const enrollment = await worker.fetch(new Request("http://localhost/api/equipment-enrollment", {
+      headers: { cookie },
+    }), env, executionContext);
+    const candidate = (await enrollment.json()).candidates.find((item) => item.moduleId === "mim-remove-01");
+    assert.equal(candidate.status, "detected");
+    assert.equal(candidate.claimed, false);
+    const deletionAudit = await database.prepare("SELECT metadata FROM managed_entity_audit WHERE event='permanently_deleted' AND entity_id=? ORDER BY id DESC LIMIT 1")
+      .bind(equipmentId).first();
+    assert.equal(JSON.parse(deletionAudit.metadata).factoryIdentityPreserved, true);
   } finally {
     delete globalThis.__FUEL_EDGE_LOCAL_DB__;
     database.close();
@@ -917,7 +1202,7 @@ test("reports disabled or unavailable field hardware without false healthy state
   ]);
   assert.match(page, /edge\.nfcReady && edge\.k24Enabled && edge\.k24Healthy/i);
   assert.match(page, /Pendiente de conexión/i);
-  assert.match(page, /Lector NFC/i);
+  assert.match(page, /Lector RFID/i);
   assert.match(store, /nfc_ready AS nfcReady/i);
   assert.match(store, /k24_enabled AS k24Enabled/i);
   assert.match(store, /tank_level_enabled AS tankLevelEnabled/i);
@@ -935,7 +1220,7 @@ test("enrolls a factory-trusted MIM through the local Raspberry Wi-Fi link", asy
   ]);
   assert.match(page, /Módulo Identificador de Máquina \(MIM\)/i);
   assert.doesNotMatch(page, />[^<]*XIAO[^<]*</i);
-  assert.match(page, /red Wi-Fi privada de la Raspberry/i);
+  assert.match(page, /red Wi-Fi privada del PLC/i);
   assert.match(page, /Nombrar y enrolar/i);
   assert.match(page, /Actualizar lectura de MIMs/i);
   assert.match(page, /Buscar equipos en la red/i);
@@ -962,7 +1247,7 @@ test("enrolls a factory-trusted MIM through the local Raspberry Wi-Fi link", asy
   assert.match(firmwareProtocol, /kClaimUuid/i);
   assert.match(firmwareProtocol, /kFlagEnrollmentReady/i);
   assert.match(firmware, /startWifiEnrollment/i);
-  assert.match(firmware, /kFactoryResetHoldMilliseconds = 8000/i);
+  assert.match(firmware, /kFactoryResetHoldMilliseconds = 20000/i);
 });
 
 test("persists the complete sighting, claim and enrollment command flow", async () => {
@@ -1095,6 +1380,76 @@ test("persists the complete sighting, claim and enrollment command flow", async 
     assert.equal(transferred.kind, "Camioneta");
     assert.equal(transferred.siteId, "campo-dos");
     assert.equal(transferred.expiry, transferUntil);
+  } finally {
+    delete globalThis.__FUEL_EDGE_LOCAL_DB__;
+    database.close();
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("enrolls two MIM independently and in parallel at the same site", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "fuel-parallel-enrollment-"));
+  const database = createLocalD1(join(directory, "web.sqlite3"));
+  globalThis.__FUEL_EDGE_LOCAL_DB__ = database;
+  try {
+    const worker = await loadWorker();
+    const env = {
+      ...authEnv("master@example.test", "correct horse battery staple"),
+      AUTH_BOOTSTRAP_VERSION: "test-parallel-enrollment-1",
+      FUEL_SENSOR_INGEST_KEY: randomBytes(32).toString("base64url"),
+    };
+    const login = await worker.fetch(new Request("http://localhost/api/auth/login", {
+      method: "POST",
+      headers: { "content-type": "application/json", origin: "http://localhost" },
+      body: JSON.stringify({ email: "master@example.test", password: "correct horse battery staple" }),
+    }), env, executionContext);
+    assert.equal(login.status, 200);
+    const cookie = (login.headers.get("set-cookie") ?? "").split(";", 1)[0];
+    const edgeHeaders = { "content-type": "application/json", "x-edge-sensor-key": env.FUEL_SENSOR_INGEST_KEY };
+    const modules = [
+      { moduleId: "mim-parallel-01", name: "Tractor paralelo A", rssi: -47 },
+      { moduleId: "mim-parallel-02", name: "Tractor paralelo B", rssi: -51 },
+    ];
+
+    const sightings = await Promise.all(modules.map((item) => worker.fetch(new Request("http://localhost/api/equipment-enrollment/sightings", {
+      method: "POST",
+      headers: edgeHeaders,
+      body: JSON.stringify({ moduleId: item.moduleId, siteId: "fundo-paralelo", deviceName: null, equipmentId: null, firmware: "0.2.0", battery: 80, rssi: item.rssi, claimed: false, occurredAt: new Date().toISOString() }),
+    }), env, executionContext)));
+    assert.deepEqual(sightings.map((response) => response.status), [201, 201]);
+
+    const validUntil = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
+    const claims = await Promise.all(modules.map((item) => worker.fetch(new Request(`http://localhost/api/equipment-enrollment/${item.moduleId}/claim`, {
+      method: "POST",
+      headers: { cookie, origin: "http://localhost", "content-type": "application/json" },
+      body: JSON.stringify({ name: item.name, kind: "Tractor", validUntil }),
+    }), env, executionContext)));
+    assert.deepEqual(claims.map((response) => response.status), [202, 202]);
+
+    const nextCommands = await Promise.all(modules.map((item) => worker.fetch(new Request("http://localhost/api/equipment-enrollment/commands/next", {
+      method: "POST",
+      headers: edgeHeaders,
+      body: JSON.stringify({ moduleId: item.moduleId }),
+    }), env, executionContext)));
+    assert.deepEqual(nextCommands.map((response) => response.status), [200, 200]);
+    const commands = await Promise.all(nextCommands.map((response) => response.json().then((body) => body.command)));
+    assert.equal(new Set(commands.map((command) => command.id)).size, 2);
+    assert.deepEqual(commands.map((command) => command.siteId), ["fundo-paralelo", "fundo-paralelo"]);
+
+    const parallelState = await worker.fetch(new Request("http://localhost/api/equipment-enrollment", { headers: { cookie } }), env, executionContext);
+    const parallelCandidates = (await parallelState.json()).candidates.filter((candidate) => modules.some((item) => item.moduleId === candidate.moduleId));
+    assert.equal(parallelCandidates.length, 2);
+    assert.ok(parallelCandidates.every((candidate) => candidate.status === "enrolling"));
+
+    const results = await Promise.all(commands.map((command) => worker.fetch(new Request(`http://localhost/api/equipment-enrollment/commands/${command.id}/result`, {
+      method: "POST",
+      headers: edgeHeaders,
+      body: JSON.stringify({ success: true, battery: 79 }),
+    }), env, executionContext)));
+    assert.deepEqual(results.map((response) => response.status), [200, 200]);
+    const managed = await worker.fetch(new Request("http://localhost/api/managed-entities", { headers: { cookie } }), env, executionContext);
+    const enrolledNames = (await managed.json()).equipment.filter((item) => modules.some((module) => module.moduleId === item.module)).map((item) => item.name).sort();
+    assert.deepEqual(enrolledNames, modules.map((item) => item.name).sort());
   } finally {
     delete globalThis.__FUEL_EDGE_LOCAL_DB__;
     database.close();
@@ -1830,10 +2185,20 @@ test("nests the machine map under manageable equipment", async () => {
   const page = await readFile(new URL("../app/page.tsx", import.meta.url), "utf8");
   const navigation = page.match(/const navItems:[\s\S]*?const viewCopy/)?.[0] ?? "";
   assert.doesNotMatch(navigation, /id: "machineMap"/i);
-  assert.match(page, /view === "equipment"[\s\S]*?onNavigate\("machineMap"\)[\s\S]*?Ver mapa de máquinas/i);
+  assert.match(page, /view === "equipment"[\s\S]*?onNavigate\("machineMap"\)[\s\S]*?Mapa de máquinas/i);
+  assert.match(page, /view === "equipment"[\s\S]*?onNavigate\("mimEnrollment"\)[\s\S]*?Enlazar nuevo MIM/i);
   assert.match(page, /view === "machineMap"[\s\S]*?onNavigate\("equipment"\)[\s\S]*?Volver a equipos/i);
   assert.match(page, /view === "machineMap" && item\.id === "equipment"/i);
+  assert.match(page, /view === "mimEnrollment" && item\.id === "equipment"/i);
+  assert.match(page, /mimEnrollment: \{ eyebrow: "Activos · Equipos abastecibles", title: "Enlazar nuevo MIM"/i);
+  assert.doesNotMatch(navigation, /id: "mimEnrollment"/i);
   assert.match(page, /machineMap: \{ eyebrow: "Activos · Equipos abastecibles"/i);
+});
+
+test("keeps Operators selected while managing RFID credentials", async () => {
+  const page = await readFile(new URL("../app/page.tsx", import.meta.url), "utf8");
+  assert.match(page, /view === "rfidCredentials" && item\.id === "operators"/i);
+  assert.doesNotMatch(page.match(/const navItems:[\s\S]*?const viewCopy/)?.[0] ?? "", /id: "rfidCredentials"/i);
 });
 
 test("prioritizes fuel history and shows adoption only as the final active operation tab", async () => {
@@ -1847,7 +2212,10 @@ test("prioritizes fuel history and shows adoption only as the final active opera
   assert.ok(loadsIndex < alertsIndex && alertsIndex < adoptionIndex);
   assert.match(page, /item\.id !== "adoption" \|\| adoptionActive/i);
   assert.match(page, /Iniciar etapa de adopción tecnológica/i);
+  assert.match(page, /Desactivar etapa de adopción tecnológica/i);
+  assert.match(page, /\/api\/technology-adoption\/deactivate/i);
   assert.doesNotMatch(page, /Para el operador|Para el encargado agrícola|Para gerencia/i);
+  assert.doesNotMatch(page, /Gobierno y auditoría|Decisiones de etapa|adoption-history/i);
 });
 
 test("allows only the master account to permanently delete a system user", async () => {
@@ -2141,7 +2509,9 @@ test("offers temporary fundo assignment, controlled equipment types and KronTec 
   assert.doesNotMatch(page, /label: "DATA"|title: "DATA"/);
   assert.match(page, /Revalidar módulo/i);
   assert.match(page, /© 2026 by KronTec/i);
-  assert.match(page, /V\.1\.9\.2/i);
+  assert.match(page, /V\.1\.9\.17/i);
+  assert.doesNotMatch(page, /⚡/u);
+  assert.match(page, /system-power-tab[\s\S]*aria-hidden="true">SE</i);
   assert.match(page, /Control y trazabilidad de petróleo en línea/i);
   assert.match(page, /Conectividad del validador · en vivo/i);
   assert.match(page, /window\.setInterval\(refresh, 5000\)/i);

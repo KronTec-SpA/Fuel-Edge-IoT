@@ -68,7 +68,7 @@ export async function handleRelayTestRequest(request: Request, env: RelayTestEnv
       const edge = await edgeRuntimeStatus(env.DB);
       const reportedAt = edge ? new Date(String(edge.occurredAt)).getTime() : Number.NaN;
       if (!edge || !Number.isFinite(reportedAt) || Date.now() - reportedAt > 30_000) {
-        throw new RelayTestConflict("La Raspberry no tiene un reporte operacional reciente.");
+        throw new RelayTestConflict("El PLC no tiene un reporte operacional reciente.");
       }
       if (edge.state !== "locked" || edge.relayEnergized) {
         throw new RelayTestConflict("El punto debe estar bloqueado y con el relé abierto.");

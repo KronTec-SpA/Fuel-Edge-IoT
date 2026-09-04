@@ -243,7 +243,7 @@ export async function requestNfcIdentification(db: D1DatabaseLike, actorId: stri
     WHERE status IN ('pending','reading') AND datetime(expires_at) <= datetime('now')`).run();
   const enrollment = await db.prepare("SELECT id FROM nfc_enrollment_commands WHERE status IN ('pending','reading') LIMIT 1")
     .first<{ id: string }>();
-  if (enrollment) throw new NfcEnrollmentConflict("Hay un enrolamiento NFC en curso. Complétalo o cancélalo antes de identificar otra credencial.");
+  if (enrollment) throw new NfcEnrollmentConflict("Hay un enrolamiento RFID en curso. Complétalo o cancélalo antes de identificar otra credencial.");
   const id = `nfc-identify-${crypto.randomUUID()}`;
   const expiresAt = new Date(Date.now() + 60 * 1000).toISOString();
   await db.batch([
