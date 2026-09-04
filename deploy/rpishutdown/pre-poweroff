@@ -1,0 +1,18 @@
+#!/bin/sh
+# Este hook se ejecuta sólo cuando check-pre-poweroff confirma GPIO24 en LOW.
+# Debe terminar holgadamente antes de que se agoten los supercondensadores UPS.
+
+python_bin=/opt/fuel-edge/venv/bin/python
+database=/var/lib/fuel-edge/edge.db
+
+if [ ! -x "$python_bin" ]; then
+    logger -t fuel-power "No se registró el corte: runtime Fuel Edge no disponible"
+    exit 0
+fi
+
+if ! timeout 4s "$python_bin" -m fuel_edge.power_events \
+    --database "$database" record-loss --source ups_gpio24 >/dev/null 2>&1; then
+    logger -t fuel-power "No se pudo persistir el corte detectado por GPIO24"
+fi
+
+exit 0

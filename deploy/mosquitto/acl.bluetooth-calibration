@@ -1,0 +1,19 @@
+
+# Permisos agregados al validador: calibración RSSI y ventana de enrolamiento NFC.
+user rpi-rpiplc-19r-01
+topic write fuel-edge/v1/concha-y-toro-piloto/rpiplc-19r-01/validators/+/config
+topic read fuel-edge/v1/concha-y-toro-piloto/rpiplc-19r-01/validators/+/config/status
+topic write fuel-edge/v1/concha-y-toro-piloto/rpiplc-19r-01/validators/+/enrollment
+topic write fuel-edge/v1/concha-y-toro-piloto/rpiplc-19r-01/validators/+/registry
+topic read fuel-edge/v1/concha-y-toro-piloto/rpiplc-19r-01/validators/+/registry/status
+topic write fuel-edge/v1/concha-y-toro-piloto/rpiplc-19r-01/validators/+/ota/command
+topic read fuel-edge/v1/concha-y-toro-piloto/rpiplc-19r-01/validators/+/ota/status
+
+user validator-01
+topic read fuel-edge/v1/concha-y-toro-piloto/rpiplc-19r-01/validators/validator-01/config
+topic write fuel-edge/v1/concha-y-toro-piloto/rpiplc-19r-01/validators/validator-01/config/status
+topic read fuel-edge/v1/concha-y-toro-piloto/rpiplc-19r-01/validators/validator-01/enrollment
+topic read fuel-edge/v1/concha-y-toro-piloto/rpiplc-19r-01/validators/validator-01/registry
+topic write fuel-edge/v1/concha-y-toro-piloto/rpiplc-19r-01/validators/validator-01/registry/status
+topic read fuel-edge/v1/concha-y-toro-piloto/rpiplc-19r-01/validators/validator-01/ota/command
+topic write fuel-edge/v1/concha-y-toro-piloto/rpiplc-19r-01/validators/validator-01/ota/status

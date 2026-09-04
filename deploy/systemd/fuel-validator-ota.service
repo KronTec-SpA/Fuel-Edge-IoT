@@ -1,0 +1,32 @@
+[Unit]
+Description=Servidor HTTPS/mTLS para firmware OTA del validador
+Wants=network-online.target
+After=network-online.target mosquitto.service
+ConditionPathExists=/etc/mosquitto/tls/broker.crt
+ConditionPathExists=/etc/mosquitto/tls/broker.key
+ConditionPathExists=/etc/mosquitto/tls/ca.crt
+# Un fallo transitorio no debe agotar la recuperación automática.
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+User=root
+Group=root
+ExecStart=/opt/fuel-edge/venv/bin/fuel-validator-ota serve --root /var/lib/fuel-edge/validator-ota --validator-id validator-01 --bind 10.42.0.1 --port 8443
+Restart=always
+RestartSec=3
+UMask=0027
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+ReadOnlyPaths=/var/lib/fuel-edge/validator-ota /etc/mosquitto/tls
+RestrictSUIDSGID=true
+LockPersonality=true
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+
+[Install]
+WantedBy=multi-user.target

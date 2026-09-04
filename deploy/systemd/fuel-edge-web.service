@@ -1,0 +1,47 @@
+[Unit]
+Description=Concha y Toro - Monitoreo Combustible - interfaz web local
+Wants=network-online.target
+After=network-online.target fuel-edge.service
+
+[Service]
+Type=simple
+User=fuel-edge-web
+Group=fuel-edge-web
+WorkingDirectory=/opt/fuel-edge-web/current
+Environment=NODE_ENV=production
+Environment=WRANGLER_WRITE_LOGS=false
+Environment=WRANGLER_LOG_PATH=/var/log/fuel-edge-web/wrangler.log
+Environment=MINIFLARE_REGISTRY_PATH=/var/lib/fuel-edge-web/registry
+Environment=HOST=127.0.0.1
+Environment=PORT=8080
+Environment=LOCAL_SQLITE_PATH=/var/lib/fuel-edge-web/fuel-edge.sqlite3
+EnvironmentFile=/etc/fuel-edge/web-auth.env
+ExecStart=/usr/bin/env node /opt/fuel-edge-web/current/runtime/start-local.mjs
+Restart=on-failure
+RestartSec=4
+TimeoutStopSec=15
+KillSignal=SIGTERM
+
+# La cuenta web se configura como hashes/secretos en un archivo sólo legible
+# por el usuario del servicio. Nunca se almacena la contraseña original.
+ReadOnlyPaths=/etc/fuel-edge/web-auth.env
+UMask=0077
+
+# Aislamiento: el frontend no necesita privilegios ni acceso al hardware.
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+CapabilityBoundingSet=
+AmbientCapabilities=
+StateDirectory=fuel-edge-web
+LogsDirectory=fuel-edge-web
+
+[Install]
+WantedBy=multi-user.target

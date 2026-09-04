@@ -1,0 +1,23 @@
+.DS_Store
+.arduino/
+.tools/
+.work/
+.venv/
+.pnpm-store/
+.pio/
+.ruff_cache/
+.pytest_cache/
+build/
+dist/
+*.tsbuildinfo
+__pycache__/
+*.py[cod]
+*.egg-info/
+backups/
+firmware/rfid_validator/include/validator_secrets.h
+firmware/equipment_module/include/equipment_secrets.h
+firmware/equipment_module/include/equipment_network_secrets.h
+
+# Las imágenes compiladas incorporan credenciales privadas del dispositivo.
+outputs/releases/
+outputs/rollback/

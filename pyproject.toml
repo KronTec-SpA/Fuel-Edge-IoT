@@ -1,0 +1,22 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "fuel-telemetry-edge"
+version = "0.3.20"
+description = "Agente edge para telemetría de combustible en Raspberry PLC"
+requires-python = ">=3.11"
+dependencies = ["bleak>=0.22,<1", "paho-mqtt>=2.1,<3"]
+
+[project.scripts]
+fuel-edge = "fuel_edge.main:main"
+fuel-equipment-enrollment = "fuel_edge.equipment_enrollment:main"
+fuel-validator-ota = "fuel_edge.validator_ota:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]

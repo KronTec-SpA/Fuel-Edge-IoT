@@ -1,0 +1,49 @@
+[Unit]
+Description=Control local de combustible - Raspberry PLC
+Wants=network-online.target
+Wants=mosquitto.service
+After=local-fs.target network-online.target mosquitto.service
+RequiresMountsFor=/var/lib/fuel-edge
+# No abandonar la recuperación automática después de una ráfaga de fallos.
+StartLimitIntervalSec=0
+
+[Service]
+Type=notify
+NotifyAccess=main
+# El acceso I2C de python3-librpiplc se valida como root en la imagen original.
+User=root
+Group=root
+ExecStartPre=/opt/fuel-edge/venv/bin/fuel-edge validate-config --config /etc/fuel-edge/config.toml
+ExecStart=/opt/fuel-edge/venv/bin/fuel-edge run --config /etc/fuel-edge/config.toml
+ExecStop=/opt/fuel-edge/venv/bin/fuel-edge relay-off --config /etc/fuel-edge/config.toml
+Restart=always
+RestartSec=3
+# El notificador late cada WatchdogSec/2. El peor camino acotado de control es
+# 50 s; 120 s deja 10 s de margen aun si comienza justo antes del próximo latido.
+WatchdogSec=120
+TimeoutStartSec=60
+TimeoutStopSec=15
+TimeoutStopFailureMode=kill
+KillSignal=SIGTERM
+KillMode=mixed
+OOMPolicy=kill
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=fuel-edge
+UMask=0077
+RuntimeDirectory=fuel-edge
+StateDirectory=fuel-edge
+ReadWritePaths=/var/lib/fuel-edge /run/fuel-edge
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+
+[Install]
+WantedBy=multi-user.target

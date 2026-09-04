@@ -1,0 +1,33 @@
+# El username corresponde al CN del certificado cliente por
+# use_identity_as_username=true. Ajustar IDs al punto instalado.
+
+user rpi-rpiplc-19r-01
+topic read fuel-edge/v1/concha-y-toro-piloto/rpiplc-19r-01/validators/+/presentation
+topic read fuel-edge/v1/concha-y-toro-piloto/rpiplc-19r-01/validators/+/proof
+topic read fuel-edge/v1/concha-y-toro-piloto/rpiplc-19r-01/validators/+/equipment
+topic read fuel-edge/v1/concha-y-toro-piloto/rpiplc-19r-01/validators/+/credential
+topic read fuel-edge/v1/concha-y-toro-piloto/rpiplc-19r-01/validators/+/config/status
+topic read fuel-edge/v1/concha-y-toro-piloto/rpiplc-19r-01/validators/+/registry/status
+topic read fuel-edge/v1/concha-y-toro-piloto/rpiplc-19r-01/validators/+/ota/status
+topic write fuel-edge/v1/concha-y-toro-piloto/rpiplc-19r-01/validators/+/challenge
+topic write fuel-edge/v1/concha-y-toro-piloto/rpiplc-19r-01/validators/+/decision
+topic write fuel-edge/v1/concha-y-toro-piloto/rpiplc-19r-01/validators/+/config
+topic write fuel-edge/v1/concha-y-toro-piloto/rpiplc-19r-01/validators/+/enrollment
+topic write fuel-edge/v1/concha-y-toro-piloto/rpiplc-19r-01/validators/+/registry
+topic write fuel-edge/v1/concha-y-toro-piloto/rpiplc-19r-01/validators/+/ota/command
+topic write fuel-edge/v1/concha-y-toro-piloto/rpiplc-19r-01/validators/rpi/status
+
+user validator-01
+topic write fuel-edge/v1/concha-y-toro-piloto/rpiplc-19r-01/validators/validator-01/presentation
+topic write fuel-edge/v1/concha-y-toro-piloto/rpiplc-19r-01/validators/validator-01/proof
+topic write fuel-edge/v1/concha-y-toro-piloto/rpiplc-19r-01/validators/validator-01/equipment
+topic write fuel-edge/v1/concha-y-toro-piloto/rpiplc-19r-01/validators/validator-01/credential
+topic read fuel-edge/v1/concha-y-toro-piloto/rpiplc-19r-01/validators/validator-01/challenge
+topic read fuel-edge/v1/concha-y-toro-piloto/rpiplc-19r-01/validators/validator-01/decision
+topic read fuel-edge/v1/concha-y-toro-piloto/rpiplc-19r-01/validators/validator-01/config
+topic read fuel-edge/v1/concha-y-toro-piloto/rpiplc-19r-01/validators/validator-01/enrollment
+topic read fuel-edge/v1/concha-y-toro-piloto/rpiplc-19r-01/validators/validator-01/registry
+topic read fuel-edge/v1/concha-y-toro-piloto/rpiplc-19r-01/validators/validator-01/ota/command
+topic write fuel-edge/v1/concha-y-toro-piloto/rpiplc-19r-01/validators/validator-01/config/status
+topic write fuel-edge/v1/concha-y-toro-piloto/rpiplc-19r-01/validators/validator-01/registry/status
+topic write fuel-edge/v1/concha-y-toro-piloto/rpiplc-19r-01/validators/validator-01/ota/status

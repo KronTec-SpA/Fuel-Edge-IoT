@@ -1,0 +1,31 @@
+[Unit]
+Description=Enrolamiento Wi-Fi local de módulos MIM/XIAO
+Wants=network-online.target fuel-edge-web.service
+After=network-online.target fuel-edge-web.service
+ConditionPathExists=/etc/fuel-edge/equipment-registry.toml
+# Un fallo transitorio no debe agotar la recuperación automática.
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+User=root
+Group=root
+ExecStart=/opt/fuel-edge/venv/bin/fuel-equipment-enrollment --config /etc/fuel-edge/config.toml --registry /etc/fuel-edge/equipment-registry.toml --bind 10.42.0.1 --port 8788
+Restart=always
+RestartSec=3
+TimeoutStopSec=10
+KillSignal=SIGTERM
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+
+[Install]
+WantedBy=multi-user.target

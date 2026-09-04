@@ -1,0 +1,83 @@
+[identity]
+module_id = "rpiplc-19r-01"
+site_id = "concha-y-toro-piloto"
+
+[plc]
+# Hardware confirmado por etiqueta: REF 012002000100, Raspberry PLC 19R V6.
+# La microSD usa librpiplc 4.1.0 y python3-librpiplc 4.0.1.
+version = "RPIPLC_V6"
+model = "RPIPLC_19R"
+pump_relay = "R0.1"
+
+[control]
+start_timeout_seconds = 60
+k24_inactivity_seconds = 40
+ble_loss_seconds = 20
+nfc_debounce_milliseconds = 300
+# Respaldo fail-safe: debe superar holgadamente el heartbeat RFID de 1 s.
+nfc_presence_timeout_milliseconds = 2500
+
+[k24]
+# Contacto Reed pasivo mediante una interfaz de pulsos de alta impedancia cuya
+# salida 5-24 Vdc alimenta la entrada aislada I0.0 respecto de (-)I0.0.
+# No conectar el Reed directamente a Vdc. La entrada quedó validada en terreno:
+# reposo HIGH y 393 pulsos activos en LOW durante la prueba con aire.
+# El factor 100 pulsos/L es nominal hasta calibrarlo con petróleo y un patrón.
+enabled = true
+input_pin = "I0.0"
+active_low = true
+poll_interval_milliseconds = 1.0
+debounce_milliseconds = 1.5
+pulses_per_liter = 100.0
+
+[database]
+path = "/var/lib/fuel-edge/edge.db"
+
+[web_sync]
+# Activar después de provisionar web-auth.env y web-sensor.key con la misma ejecución.
+enabled = true
+base_url = "http://127.0.0.1:8080"
+sensor_key_path = "/etc/fuel-edge/web-sensor.key"
+request_timeout_seconds = 3.0
+retry_seconds = 5.0
+
+[tank_level]
+# PIUSI OCIO: 4-20 mA hacia el módulo convertidor instalado; su salida calibrada
+# es 0.00 V = 0 % y 9.80 V = 100 %, conectada a I0.2. Este fondo de escala
+# corresponde a la calibración de terreno del conjunto OCIO + convertidor.
+# El 19R V6 recibe sólo la salida de tensión del convertidor, nunca el lazo de
+# corriente directamente.
+enabled = true
+source = "plc_analog"
+telemetry_source = "PIUSI OCIO 4-20 mA vía convertidor 0-9.80 V"
+capacity_liters = 2500.0
+input_pin = "I0.2"
+signal_mode = "0-10v"
+input_empty_volts = 0.0
+input_full_volts = 9.80
+adc_full_scale = 4095
+sample_count = 5
+deadband_percent = 0.1
+publish_interval_seconds = 60.0
+# El OCIO conmuta su salida durante el ciclo de medición. Se admite una banda
+# de 2 % (50 L en 2.500 L); la web descarta ese orden de variación y confirma
+# recepciones sólo desde una subida sostenida de 100 L.
+stability_seconds = 15.0
+stability_band_percent = 2.0
+
+[validator]
+# El servicio valida certificados TLS y registro 0600 antes de tocar hardware.
+enabled = true
+validator_id = "validator-01"
+registry_path = "/etc/fuel-edge/validator-registry.toml"
+# Fuente protegida que la Raspberry distribuye automáticamente a los
+# validadores por MQTT/TLS. Admite hasta 32 MIM activos por validador.
+equipment_registry_path = "/etc/fuel-edge/equipment-registry.toml"
+proof_timeout_seconds = 5.0
+
+[validator.mqtt]
+host = "127.0.0.1"
+port = 8883
+ca_certificate = "/etc/fuel-edge/tls/ca.crt"
+client_certificate = "/etc/fuel-edge/tls/rpi.crt"
+client_key = "/etc/fuel-edge/tls/rpi.key"

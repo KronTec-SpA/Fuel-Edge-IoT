@@ -1,0 +1,45 @@
+Host rpiplc
+    HostName 10.10.10.20
+    User pi
+    IdentityFile ~/.ssh/id_ed25519_rpiplc
+    IdentitiesOnly yes
+    StrictHostKeyChecking accept-new
+
+Host rpiplc-name
+    HostName fueledge.local
+    User pi
+    IdentityFile ~/.ssh/id_ed25519_rpiplc
+    IdentitiesOnly yes
+    StrictHostKeyChecking accept-new
+
+Host rpiplc-tailscale
+    HostName fuel-edge-rpi
+    User pi
+    IdentityFile ~/.ssh/id_ed25519_rpiplc
+    IdentitiesOnly yes
+    StrictHostKeyChecking accept-new
+
+Host rpiplc-alt
+    # Alias de compatibilidad: la administración directa está fijada en eth1.
+    HostName 10.10.10.20
+    User pi
+    IdentityFile ~/.ssh/id_ed25519_rpiplc
+    IdentitiesOnly yes
+    StrictHostKeyChecking accept-new
+
+Host rpiplc-wifi
+    HostName 192.168.100.102
+    User pi
+    IdentityFile ~/.ssh/id_ed25519_rpiplc
+    IdentitiesOnly yes
+    StrictHostKeyChecking accept-new
+
+Host rpiplc-web
+    HostName 192.168.100.102
+    User pi
+    IdentityFile ~/.ssh/id_ed25519_rpiplc
+    IdentitiesOnly yes
+    StrictHostKeyChecking accept-new
+    LocalForward 127.0.0.1:8080 127.0.0.1:8080
+    ExitOnForwardFailure yes
+    ServerAliveInterval 30

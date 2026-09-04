@@ -1,0 +1,9 @@
+# Credencial exclusiva de banco. No utilizar esta clave pública en producción.
+[[credentials]]
+credential_id = "card-01"
+operator_id = "operator-test"
+secret_hex = "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f"
+credential_active = true
+operator_active = true
+is_master = true
+

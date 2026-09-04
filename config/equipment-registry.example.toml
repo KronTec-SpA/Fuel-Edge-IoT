@@ -1,0 +1,6 @@
+# Una entrada por XIAO. La herramienta de flasheo debe escribir la misma clave
+# única en el firmware y en este registro protegido de la Raspberry.
+[[modules]]
+module_id = "equipment-module-0001"
+secret_hex = "704f1ca2869d5318b1357ae42d916c0839f562abc710de448e2359f06bd4179a"
+active = true

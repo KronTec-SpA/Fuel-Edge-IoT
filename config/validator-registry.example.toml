@@ -1,0 +1,20 @@
+# Copiar fuera del repositorio a /etc/fuel-edge/validator-registry.toml.
+# Reemplazar la clave de ejemplo y aplicar: chmod 600 <archivo>.
+
+[[credentials]]
+credential_id = "card-01"
+operator_id = "operator-01"
+secret_hex = "REEMPLAZAR_POR_64_CARACTERES_HEXADECIMALES"
+credential_active = true
+operator_active = true
+is_master = false
+
+[[equipment]]
+equipment_id = "tractor-01"
+active = true
+assignment_valid_until = "2027-01-01T00:00:00-03:00"
+
+[[associations]]
+operator_id = "operator-01"
+equipment_id = "tractor-01"
+active = true
