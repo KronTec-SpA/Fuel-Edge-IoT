@@ -1,5 +1,8 @@
 # Telemetría de combustible — agente edge
 
+Versión actual: **Edge 0.3.26 / Web 1.9.29**. Véase el
+[registro de actualización y validación](docs/version-20260925.md).
+
 Control local y auditable para un Raspberry PLC Industrial Shields 19R. La
 salida elegida para habilitar la bomba es el **relé R0.1**: con el circuito
 cableado entre COM y NO, `HIGH` lo cierra y `LOW` lo abre. La selección está declarada una sola vez en
@@ -174,9 +177,10 @@ etapa por sí sola.
 - La web no crea datos ficticios en producción. Cargas, histórico, nivel,
   alertas y estado se reconstruyen con información entregada por el agente.
 
-El K24 instalado tiene un factor nominal confirmado de
-`k24.pulses_per_liter = 100.0`; debe verificarse en terreno con un patrón
-volumétrico antes de clasificar la medición como calibrada.
+La configuración del PLC consultada el 08/09/2026 usa
+`k24.pulses_per_liter = 90.0`. El proyecto conserva ese ajuste de terreno;
+no debe sustituirse por el nominal de 100 al desplegar. La exactitud debe
+contrastarse con un patrón volumétrico.
 
 ## Conversación tractor ↔ validador ↔ RPi
 
@@ -291,10 +295,10 @@ realimentación eléctrica del contacto.
 El PIUSI OCIO mide el nivel mediante una salida 4-20 mA. Un módulo intermedio
 convierte ese lazo a tensión para el Raspberry PLC 19R V6, que expone cuatro
 entradas analógicas 0-10 V (`I0.2` a `I0.5`). La instalación real usa `I0.2` y
-una salida del convertidor calibrada en terreno: `0.00 V` representa el estanque
-vacío y `9.80 V` representa el estanque lleno. Este fondo de escala corresponde
-a la calibración del conjunto OCIO + convertidor. El PLC no recibe el lazo de
-corriente directamente.
+una salida del convertidor configurada en terreno: `0.00 V` representa el 0 %
+de señal y `9.80 V` el 100 %. Falta confirmar el significado físico de esos
+extremos en el OCIO; no se deduce del voltaje si representan altura o volumen.
+El PLC no recibe el lazo de corriente directamente.
 
 La configuración de producción usa mediana de cinco muestras y escala:
 
@@ -312,6 +316,17 @@ de una salida desconectada; esa condición debe diagnosticarse por inspección o
 supervisión adicional de la interfaz.
 
 ## Validación y despliegue
+
+La curva de volumen elegida es la [tabla BFM02500DG del fabricante](docs/verificacion-tabla-fabricante-fm2500.md).
+Está implementada como `fm2500_manufacturer`: conserva los 14 puntos,
+interpola linealmente y rechaza alturas fuera de 135–1.125 mm. Requiere señal
+lineal en altura y extremos eléctricos explícitos antes de su activación;
+`fm2500_horizontal` fue retirado. La configuración selecciona la tabla con
+escala objetivo 0–1.300 mm y `ocio_calibration_pending = true` hasta verificar
+el instrumento. Se registran ADC y candidatos por tabla; el dashboard indica
+«Calibración pendiente» y no se usan esos candidatos como inventario confirmado.
+La curva y el escalado se identifican en cada
+lectura para que su cambio no cree recepciones ni falsas diferencias de inventario.
 
 La guía de operación del enlace Raspberry ↔ validador desde Terminal está en
 [`docs/validador-mqtt-terminal.md`](docs/validador-mqtt-terminal.md).
@@ -433,6 +448,11 @@ broker Mosquitto tienen reinicio automático sin agotar el límite de intentos;
 el AP deshabilita ahorro de energía y reintenta su autoconexión indefinidamente.
 Una desconexión MQTT durante la publicación del registro MIM se trata como
 transitoria y se reintenta, sin terminar el controlador.
+
+La revisión de [alarmas, cuadratura acumulada y calibración FM2500](docs/alarmas-y-calibracion.md)
+documenta la detección de descenso sin flujo K24, las verificaciones al reiniciar,
+el seguimiento de pérdidas pequeñas entre días y las condiciones para activar
+la corrección geométrica del OCIO. Incluye límites de medición y pruebas de aceptación.
 
 La versión 0.3.11 implementa el bucle base, relé fail-safe, K24, OCIO analógico,
 persistencia, sincronización web durable, enrolamiento NFC desde la app,

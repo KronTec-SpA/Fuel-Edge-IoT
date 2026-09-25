@@ -1,0 +1,40 @@
+{
+  "status": "recorded",
+  "auditId": 626,
+  "reference": {
+    "referenceId": "ocio-field-440mm-20260909T145420Z",
+    "recordedAt": "2026-09-09T14:56:16.749657+00:00",
+    "siteId": "concha-y-toro-piloto",
+    "reportedHeightMm": 440.0,
+    "heightSource": "user_reported_ocio_display",
+    "independentPhysicalHeightVerified": false,
+    "observedAt": null,
+    "observationTiming": "current display confirmed by user during inspection; exact read timestamp not provided",
+    "userConfirmedOcioSetup": {
+      "shape": "C",
+      "heightMm": 1300,
+      "widthMm": 1000,
+      "depthMm": 1000
+    },
+    "manufacturerCurve": "kingspan-bfm02500dg-4-2008-linear-v1",
+    "manufacturerInterpolatedLiters": 869.0,
+    "signalEvidence": {
+      "from": "2026-09-09T14:50:00.130487+00:00",
+      "to": "2026-09-09T14:54:08.226230+00:00",
+      "samples": 246,
+      "acceptedSamples": 23,
+      "referenceAdc": 1169.0,
+      "referenceVolts": 2.8547008547008548,
+      "acceptedFrom": "2026-09-09T14:50:48.701997+00:00",
+      "acceptedTo": "2026-09-09T14:51:10.948680+00:00",
+      "sha256": "b3aec19dedc735a590b837d0b9c5e29deb9522648eb00d27d04d474ed303b323",
+      "backupDirectory": "/var/backups/fuel-edge/ocio-reference-20260909-440mm"
+    },
+    "configuredHeightAtSignalMm": 378.68480725623584,
+    "expectedVoltsFor440Mm": 3.316923076923077,
+    "confirmationId": "9541856c-eddb-47eb-ac97-45e7c90ef751",
+    "status": "awaiting_output_module_restart_verification",
+    "appliedToConversion": false,
+    "note": "First reported reference. Preserve manufacturer curve; verify output module scale before fitting signal-to-height conversion. One point cannot identify both slope and offset."
+  }
+}

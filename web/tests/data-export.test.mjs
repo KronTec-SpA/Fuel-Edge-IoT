@@ -57,6 +57,28 @@ test("permite a todo usuario autenticado descargar una exportación operacional 
       headers: { cookie: masterCookie },
     }), env, executionContext);
     assert.equal(initialized.status, 200);
+    const initialData = await initialized.json();
+    assert.deepEqual(initialData.voltajesHistoricos, []);
+    const sensorKey = "voltage-sensor-test-key-32-characters";
+    env.FUEL_SENSOR_INGEST_KEY = sensorKey;
+    const voltageBody = { siteId: "concha-y-toro-piloto", telemetrySessionId: "boot-1", source: "OCIO",
+      samples: [{ occurredAt: "2026-08-20T12:00:00+00:00", volts: 8.129426, rawAdc: 3329, quality: "valid", calibrationId: "curve-test" }] };
+    const postVoltage = (body, key = sensorKey) => worker.fetch(new Request("http://localhost/api/fuel-history/voltages", {
+      method: "POST", headers: { "content-type": "application/json", "x-edge-sensor-key": key }, body: JSON.stringify(body),
+    }), env, executionContext);
+    assert.equal((await postVoltage(voltageBody, "wrong")).status, 403);
+    assert.equal((await postVoltage(voltageBody)).status, 200);
+    assert.equal((await postVoltage({ ...voltageBody, samples: [{ ...voltageBody.samples[0], occurredAt: "2026-08-20T12:00:00.000Z" }] })).status, 200);
+    assert.equal((await database.prepare("SELECT COUNT(*) AS n FROM voltage_readings").first()).n, 1);
+    for (const bad of [null, {}, { ...voltageBody, siteId: "another-site" }, { ...voltageBody, samples: [] },
+      { ...voltageBody, samples: [voltageBody.samples[0], { ...voltageBody.samples[0], volts: 11 }] },
+      { ...voltageBody, samples: [{ ...voltageBody.samples[0], occurredAt: "not-a-date" }] }]) {
+      assert.equal((await postVoltage(bad)).status, 400);
+    }
+    assert.equal((await database.prepare("SELECT COUNT(*) AS n FROM voltage_readings").first()).n, 1);
+    await database.batch(Array.from({ length: 1001 }, (_, i) => database.prepare(`INSERT INTO voltage_readings
+      (site_id,telemetry_session_id,occurred_at,source,volts,raw_adc,quality) VALUES ('concha-y-toro-piloto','boot-1',?,'OCIO',2.5,1023.75,'warming_up')`)
+      .bind(new Date(Date.UTC(2026, 7, 20, 13, 0, i)).toISOString())));
 
     const created = await worker.fetch(new Request("http://localhost/api/users", {
       method: "POST",
@@ -106,6 +128,15 @@ test("permite a todo usuario autenticado descargar una exportación operacional 
     assert.match(response.headers.get("cache-control") ?? "", /no-store/i);
     const body = await response.json();
     assert.equal(body.metadatos.scope, "operational-sanitized");
+    assert.equal(body.metadatos.schemaVersion, 3);
+    assert.equal(body.metadatos.counts.voltajesHistoricos, 1002);
+    assert.equal(body.voltajesHistoricos.length, 1002);
+    assert.equal(body.voltajesHistoricos[0].volts, 8.129426);
+    assert.equal(body.voltajesHistoricos[0].rawAdc, 3329);
+    assert.equal(body.voltajesHistoricos[0].calibrationId, "curve-test");
+    assert.equal(body.litrosPorMaquina[0].equipmentId, "eq-export");
+    assert.equal(body.litrosPorMaquina[0].liters, 50);
+    assert.equal(body.litrosPorMaquina[0].loads, 1);
     assert.equal(body.metadatos.generatedBy.role, "viewer");
     assert.equal(body.nivelesHistoricos.at(-1).levelLiters, 1450.5);
     assert.equal(body.transacciones.at(-1).operatorName, "Operador Exportación");
@@ -122,6 +153,15 @@ test("permite a todo usuario autenticado descargar una exportación operacional 
     assert.match(transactionsCsv.headers.get("content-type") ?? "", /^text\/csv/i);
     assert.match(transactionsCsv.headers.get("content-disposition") ?? "", /transacciones-/i);
     assert.match(await transactionsCsv.text(), /Operador Exportación.*Tractor de prueba/is);
+    const getExport = dataset => worker.fetch(new Request(`http://localhost/api/data-export?dataset=${dataset}`, { headers: { cookie: viewerCookie } }), env, executionContext);
+    const voltagesCsv = await getExport("voltages");
+    assert.equal(voltagesCsv.status, 200);
+    const voltageCsvText = await voltagesCsv.text();
+    assert.match(voltageCsvText, /"8.129426","3329","valid"/);
+    assert.equal(voltageCsvText.trim().split(/\r?\n/).length, 1003);
+    const machineCsv = await getExport("machine-liters");
+    assert.equal(machineCsv.status, 200);
+    assert.match(await machineCsv.text(), /"eq-export","Tractor de prueba","Tractor","50.0","1","50.0"/);
 
     const invalidDataset = await worker.fetch(new Request("http://localhost/api/data-export?dataset=private-secrets", {
       headers: { cookie: viewerCookie },

@@ -1,6 +1,90 @@
 import { sql } from "drizzle-orm";
 import { index, integer, primaryKey, real, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
 
+export const voltageReadings = sqliteTable("voltage_readings", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  siteId: text("site_id").notNull(),
+  telemetrySessionId: text("telemetry_session_id").notNull().default(""),
+  occurredAt: text("occurred_at").notNull(),
+  source: text("source").notNull(),
+  volts: real("volts").notNull(),
+  rawAdc: real("raw_adc").notNull(),
+  quality: text("quality").notNull(),
+  calibrationId: text("calibration_id"),
+  createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+}, (table) => [
+  index("idx_voltage_readings_occurred").on(table.occurredAt),
+  uniqueIndex("idx_voltage_readings_identity").on(table.siteId, table.telemetrySessionId, table.source, table.occurredAt),
+]);
+
+export const fuelLevelQuality = sqliteTable("fuel_level_quality", {
+  id: integer("id").primaryKey(),
+  occurredAt: text("occurred_at").notNull(),
+  quality: text("quality").notNull(),
+  telemetrySessionId: text("telemetry_session_id"),
+});
+
+export const fuelLevelRanges = sqliteTable("fuel_level_ranges", {
+  occurredAt: text("occurred_at").primaryKey(),
+  minLiters: real("min_liters").notNull(),
+  maxLiters: real("max_liters").notNull(),
+  source: text("source").notNull(),
+  telemetrySessionId: text("telemetry_session_id"),
+});
+
+export const ocioCalibrationSettings = sqliteTable("ocio_calibration_settings", {
+  siteId: text("site_id").primaryKey(),
+  intervalDays: integer("interval_days").notNull().default(365),
+  revision: integer("revision").notNull().default(0),
+  confirmationId: text("confirmation_id"),
+  calibratedAt: text("calibrated_at"),
+  calibratedBy: text("calibrated_by"),
+  calibratedByName: text("calibrated_by_name"),
+  nextDueAt: text("next_due_at"),
+  fingerprint: text("fingerprint"),
+  appliedRevision: integer("applied_revision").notNull().default(0),
+  appliedAt: text("applied_at"),
+  controllerFingerprint: text("controller_fingerprint"),
+  controllerSeenAt: text("controller_seen_at"),
+  controllerSessionId: text("controller_session_id"),
+  controllerPending: integer("controller_pending"),
+});
+
+export const ocioCalibrationEvents = sqliteTable("ocio_calibration_events", {
+  id: text("id").primaryKey(), siteId: text("site_id").notNull(),
+  kind: text("kind").notNull(), revision: integer("revision").notNull(),
+  occurredAt: text("occurred_at").notNull(), actorId: text("actor_id").notNull(),
+  actorName: text("actor_name").notNull(), intervalDays: integer("interval_days").notNull(),
+  nextDueAt: text("next_due_at"), fingerprint: text("fingerprint"), appliedAt: text("applied_at"),
+}, table => [index("idx_ocio_calibration_events_site").on(table.siteId,table.occurredAt)]);
+
+export const inventoryBalanceAnchors = sqliteTable("inventory_balance_anchors", {
+  id: text("id").primaryKey(),
+  siteId: text("site_id").notNull().unique(),
+  originalSiteId: text("original_site_id"),
+  archivedAt: text("archived_at"),
+  payload: text("payload").notNull(),
+});
+
+export const inventoryBalanceSamples = sqliteTable("inventory_balance_samples", {
+  id: text("id").primaryKey(),
+  anchorId: text("anchor_id").notNull().references(() => inventoryBalanceAnchors.id),
+  occurredAt: text("occurred_at").notNull(),
+  localDate: text("local_date").notNull(),
+  payload: text("payload").notNull(),
+}, table => [
+  index("idx_inventory_balance_time").on(table.anchorId, table.occurredAt),
+  index("idx_inventory_balance_day").on(table.anchorId, table.localDate, table.occurredAt),
+]);
+
+export const inventoryBalanceAlarmState = sqliteTable("inventory_balance_alarm_state", {
+  anchorId: text("anchor_id").primaryKey().references(() => inventoryBalanceAnchors.id),
+  episode: integer("episode").notNull().default(0),
+  sign: integer("sign").notNull().default(0),
+  tier: integer("tier").notNull().default(0),
+  lastSeenAt: text("last_seen_at").notNull().default(""),
+});
+
 export const webUsers = sqliteTable("web_users", {
   id: text("id").primaryKey(),
   emailDigest: text("email_digest").notNull(),
@@ -150,6 +234,7 @@ export const siteCommissioning = sqliteTable("site_commissioning", {
   reopenedAt: text("reopened_at"),
   reopenedBy: text("reopened_by"),
   reopenReason: text("reopen_reason"),
+  powerIncidentType: text("power_incident_type"),
   updatedAt: text("updated_at").notNull().default(sql`CURRENT_TIMESTAMP`),
 });
 
@@ -401,6 +486,7 @@ export const systemAlertComments = sqliteTable("system_alert_comments", {
   eventType: text("event_type").notNull().default("follow_up"),
   statusAfter: text("status_after").notNull(),
   priorityAfter: text("priority_after").notNull(),
+  powerIncidentTypeAfter: text("power_incident_type_after"),
   occurredAt: text("occurred_at").notNull().default(sql`CURRENT_TIMESTAMP`),
 }, (table) => [index("idx_system_alert_comments_alert").on(table.alertId, table.occurredAt)]);
 

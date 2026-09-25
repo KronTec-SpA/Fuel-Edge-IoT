@@ -1,0 +1,53 @@
+{
+  "status": "recorded",
+  "auditId": 632,
+  "reference": {
+    "id": "ocio-full-1230mm-20260909T152524Z",
+    "recordedAt": "2026-09-09T15:28:55.672215+00:00",
+    "siteId": "concha-y-toro-piloto",
+    "source": "user_reported_ocio_display_and_full_tank",
+    "reportedHeightMm": 1230.0,
+    "reportedFillPercent": 100.0,
+    "referenceVolts": 8.224664224664224,
+    "referenceAdc": 3368.0,
+    "heightIndependentMeasurement": false,
+    "actualObservationTimestamp": null,
+    "firstCaptureAt": "2026-09-09T15:25:24.833937+00:00",
+    "confirmedTotalLiters": null,
+    "meteredAddedLiters": null,
+    "electricalEvidence": {
+      "from": "2026-09-09T15:24:00.122052+00:00",
+      "to": "2026-09-09T15:26:23.007494+00:00",
+      "samples": 142,
+      "filteredSamples": 57,
+      "filteredVoltsMin": 8.224664224664224,
+      "filteredVoltsMax": 8.224664224664224,
+      "transientPeakVolts": 8.810745
+    },
+    "fillEvidence": {
+      "path": "/var/backups/fuel-edge/ocio-full-reference-20260909-1230mm/controlled-fill-signal.json",
+      "sha256": "7f4577b57bc2a903b12bb469c3596cd7c98e4b72c9f33252530ec0e7876d170a",
+      "sampleCount": 2154,
+      "from": "2026-09-09T14:50:00.130487+00:00",
+      "to": "2026-09-09T15:26:23.007494+00:00"
+    },
+    "priorReference": {
+      "heightMm": 440.0,
+      "volts": 2.8547008547008548,
+      "manufacturerInterpolatedLiters": 869.0
+    },
+    "candidateVoltageToDisplayHeight": {
+      "millimetersPerVolt": 147.11459754433838,
+      "heightAtZeroVolts": 20.03183265120498,
+      "status": "two-point fit computed, not applied; volume curve domain mismatch remains"
+    },
+    "manufacturerTableDomainMm": [
+      135,
+      1125
+    ],
+    "domainMismatchMm": 105,
+    "calibrationIdAtCapture": "e8d4fb90-3489-4529-bb6f-6723b597c928",
+    "appliedToConversion": false,
+    "status": "full_point_recorded_awaiting_metered_liters_and_volume_curve_validation"
+  }
+}

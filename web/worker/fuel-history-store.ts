@@ -1,4 +1,5 @@
 import type { D1DatabaseLike } from "./user-store";
+import { TANK_CAPACITY_LITERS as CAPACITY_LITERS } from "../shared/tank-capacity";
 
 export type FuelMovementType = "receipt" | "dispatch";
 export type FuelMovementClassification = "standard" | "pump_enablement";
@@ -58,14 +59,14 @@ export type EdgeRuntimeStatus = {
   occurredAt: string;
 };
 
-const CAPACITY_LITERS = 2500;
 const PUMP_ENABLEMENT_THRESHOLD_LITERS = 0.12;
 const RECEIPT_THRESHOLD_LITERS = 100;
 const HIGH_CONFIDENCE_RECEIPT_LITERS = 120;
 // La recepción se reconoce por su forma temporal: subida breve y una nueva
 // meseta sostenida. La tolerancia de 2 % del OCIO equivale a 50 L en este
 // estanque; por eso una oscilación de ese orden no abre ni confirma un registro.
-const STABLE_PLATEAU_TOLERANCE_PERCENT = 2;
+const STABLE_PLATEAU_TOLERANCE_LITERS = 50;
+const STABLE_PLATEAU_TOLERANCE_PERCENT = STABLE_PLATEAU_TOLERANCE_LITERS / CAPACITY_LITERS * 100;
 const BASELINE_LOOKBACK_MINUTES = 15;
 const WARMUP_MINUTE_BUCKETS = 3;
 const TELEMETRY_GAP_MINUTES = 3;
@@ -93,6 +94,11 @@ export async function ensureFuelHistoryStore(db: D1DatabaseLike, seedDemo = fals
   if (!pending) {
     pending = (async () => {
       await db.batch([
+        db.prepare(`CREATE TABLE IF NOT EXISTS fuel_level_quality (
+          id INTEGER PRIMARY KEY CHECK(id=1),occurred_at TEXT NOT NULL,quality TEXT NOT NULL,telemetry_session_id TEXT)`),
+        db.prepare(`CREATE TABLE IF NOT EXISTS fuel_level_ranges (
+          occurred_at TEXT PRIMARY KEY,min_liters REAL NOT NULL,max_liters REAL NOT NULL,
+          source TEXT NOT NULL,telemetry_session_id TEXT)`),
         db.prepare(`CREATE TABLE IF NOT EXISTS fuel_history_meta (
           key TEXT PRIMARY KEY,
           value TEXT NOT NULL
@@ -241,6 +247,10 @@ export async function ensureFuelHistoryStore(db: D1DatabaseLike, seedDemo = fals
           active_receipt_id,active_started_at,baseline_started_at,warmup_started_at,telemetry_session_id,last_reading_at
         ) VALUES (1,?,0,0,0,NULL,NULL,'1970-01-01T00:00:00.000Z',NULL,NULL,'1970-01-01T00:00:00.000Z')`).bind(CAPACITY_LITERS).run();
       }
+      // También actualizar bases existentes: INSERT OR IGNORE no migra capacidad.
+      // No toca lecturas, movimientos ni anclas históricas de cuadratura.
+      await db.prepare("UPDATE fuel_detection_state SET capacity_liters=? WHERE id=1 AND capacity_liters<>?")
+        .bind(CAPACITY_LITERS, CAPACITY_LITERS).run();
       await repairTransientReceipts(db);
       await migrateSustainedReceiptDetector(db);
       await migrateReceiptReviewWorkflow(db);
@@ -297,21 +307,65 @@ export async function listPendingReceiptReviews(db: D1DatabaseLike) {
   return result.results.map(toMovement);
 }
 
+export type LevelDisplayReference = {liters: number; sourceAt: string; telemetrySessionId: string | null; ranged: boolean};
+
+/** Histéresis exclusiva de presentación. Nunca alimenta movimientos ni alarmas. */
+export function nextLevelDisplayReference(previous: LevelDisplayReference | null, reading: {
+  currentLevel: number; latestReadingAt: string; telemetrySessionId: string | null;
+  levelRange: {minLiters: number; maxLiters: number} | null;
+}): LevelDisplayReference {
+  const ranged = Boolean(reading.levelRange);
+  const center = reading.levelRange ? (reading.levelRange.minLiters + reading.levelRange.maxLiters)/2 : reading.currentLevel;
+  const gap = Date.parse(reading.latestReadingAt)-Date.parse(previous?.sourceAt ?? "");
+  const hold = previous && Number.isFinite(previous.liters) && gap >= 0 && gap <= 180000
+    && previous.telemetrySessionId === reading.telemetrySessionId && previous.ranged === ranged
+    && Math.abs(center-previous.liters) <= 2.5
+    && center > 0 && center < CAPACITY_LITERS && previous.liters > 0 && previous.liters < CAPACITY_LITERS
+    && (!reading.levelRange || previous.liters >= reading.levelRange.minLiters && previous.liters <= reading.levelRange.maxLiters);
+  return {liters: hold ? previous.liters : Math.round(center), sourceAt: reading.latestReadingAt,
+    telemetrySessionId: reading.telemetrySessionId, ranged};
+}
+
+async function storedDisplayReference(db: D1DatabaseLike): Promise<LevelDisplayReference | null> {
+  const row = await db.prepare("SELECT value FROM fuel_history_meta WHERE key='level_display_reference'").first<{value: string}>();
+  try { return row ? JSON.parse(row.value) as LevelDisplayReference : null; } catch { return null; }
+}
+
+async function saveDisplayReference(db: D1DatabaseLike) {
+  const sensor = await fuelSensorState(db);
+  const next = nextLevelDisplayReference(await storedDisplayReference(db), sensor);
+  await db.prepare(`INSERT INTO fuel_history_meta(key,value) VALUES ('level_display_reference',?)
+    ON CONFLICT(key) DO UPDATE SET value=excluded.value
+    WHERE json_extract(excluded.value,'$.sourceAt') >= json_extract(fuel_history_meta.value,'$.sourceAt')`)
+    .bind(JSON.stringify(next)).run();
+}
+
 export async function fuelSensorState(db: D1DatabaseLike) {
   const state = await db.prepare(`SELECT capacity_liters AS capacityLiters,baseline_level_liters AS baselineLevel,
       last_level_liters AS currentLevel,peak_level_liters AS peakLevel,last_reading_at AS latestReadingAt,
-      active_receipt_id AS activeReceiptId,active_started_at AS activeStartedAt,warmup_started_at AS warmupStartedAt
+      active_receipt_id AS activeReceiptId,active_started_at AS activeStartedAt,warmup_started_at AS warmupStartedAt,
+      telemetry_session_id AS telemetrySessionId
     FROM fuel_detection_state WHERE id=1`).first<Record<string, unknown>>();
   const active = Boolean(state?.activeReceiptId);
   const observedRiseLiters = round1(Math.max(0,
     Number(active ? state?.peakLevel : state?.currentLevel) - Number(state?.baselineLevel ?? 0)));
+  const range = await db.prepare(`SELECT occurred_at AS occurredAt,min_liters AS minLiters,
+    max_liters AS maxLiters,telemetry_session_id AS telemetrySessionId FROM fuel_level_ranges
+    ORDER BY occurred_at DESC LIMIT 1`).first<{occurredAt: string; minLiters: number; maxLiters: number; telemetrySessionId: string | null}>();
+  const rangeIsLatest = Boolean(range && range.occurredAt > String(state?.latestReadingAt ?? ""));
+  const measurementQuality = await db.prepare("SELECT occurred_at AS occurredAt,quality AS status,telemetry_session_id AS telemetrySessionId FROM fuel_level_quality WHERE id=1")
+    .first<{occurredAt: string; status: string; telemetrySessionId: string | null}>();
   return {
+    measurementQuality,
+    displayReference: await storedDisplayReference(db),
     capacityLiters: Number(state?.capacityLiters ?? CAPACITY_LITERS),
-    currentLevel: Number(state?.currentLevel ?? 0),
-    latestReadingAt: String(state?.latestReadingAt ?? ""),
+    currentLevel: rangeIsLatest ? (range!.minLiters+range!.maxLiters)/2 : Number(state?.currentLevel ?? 0),
+    levelRange: rangeIsLatest ? {minLiters: range!.minLiters, maxLiters: range!.maxLiters} : null,
+    latestReadingAt: rangeIsLatest ? range!.occurredAt : String(state?.latestReadingAt ?? ""),
+    telemetrySessionId: rangeIsLatest ? range!.telemetrySessionId : state?.telemetrySessionId ? String(state.telemetrySessionId) : null,
     receiptThresholdLiters: RECEIPT_THRESHOLD_LITERS,
     acceptedVariationPercent: STABLE_PLATEAU_TOLERANCE_PERCENT,
-    detectionStatus: active ? "detecting" : state?.warmupStartedAt ? "warming_up"
+    detectionStatus: rangeIsLatest ? "monitoring" : active ? "detecting" : state?.warmupStartedAt ? "warming_up"
       : observedRiseLiters >= RECEIPT_CONTINUATION_MINIMUM_LITERS ? "rising" : "monitoring",
     activeReceiptId: state?.activeReceiptId ? String(state.activeReceiptId) : null,
     activeStartedAt: state?.activeStartedAt ? String(state.activeStartedAt) : null,
@@ -353,6 +407,9 @@ export async function resetFuelHistoryStore(db: D1DatabaseLike, actorUserId: str
     db.prepare("DELETE FROM fuel_receipt_reviews"),
     db.prepare("DELETE FROM fuel_movements"),
     db.prepare("DELETE FROM fuel_level_readings"),
+    db.prepare("DELETE FROM fuel_level_ranges"),
+    db.prepare("DELETE FROM fuel_level_quality"),
+    db.prepare("DELETE FROM fuel_history_meta WHERE key IN ('level_display_reference','level_calibration')"),
     db.prepare(`UPDATE fuel_detection_state SET
       capacity_liters=?,baseline_level_liters=0,last_level_liters=0,peak_level_liters=0,
       active_receipt_id=NULL,active_started_at=NULL,
@@ -395,12 +452,87 @@ export async function ingestEdgeRuntimeStatus(db: D1DatabaseLike, body: Record<s
   return { recorded: true };
 }
 
-export async function ingestFuelLevelReading(
+export async function ingestFuelLevelQuality(db: D1DatabaseLike, status: unknown, occurredAt: string, telemetrySessionId?: string | null) {
+  if (typeof status !== "string" || !["valid","range","settling","warming_up","ambiguous_levels","insufficient_coverage","unavailable","calibration_pending"].includes(status)) throw new Error("Estado de lectura inválido.");
+  const at = new Date(occurredAt), session = optionalTelemetrySessionId(telemetrySessionId);
+  if (!Number.isFinite(at.getTime()) || at.getTime() <= 0 || at.getTime() > Date.now()+300000 || (telemetrySessionId != null && !session)) throw new Error("Fecha o sesión inválida.");
+  await assertAfterFieldReset(db, at.toISOString());
+  await db.prepare(`INSERT INTO fuel_level_quality(id,occurred_at,quality,telemetry_session_id) VALUES (1,?,?,?)
+    ON CONFLICT(id) DO UPDATE SET occurred_at=excluded.occurred_at,quality=excluded.quality,telemetry_session_id=excluded.telemetry_session_id
+    WHERE excluded.occurred_at >= fuel_level_quality.occurred_at`).bind(at.toISOString(), status, session).run();
+  return {status: "quality", occurredAt: at.toISOString()};
+}
+
+export async function ingestFuelLevelRange(...args: Parameters<typeof ingestFuelLevelRangeEvidence>) {
+  const result = await ingestFuelLevelRangeEvidence(...args);
+  await saveDisplayReference(args[0]);
+  return result;
+}
+
+async function levelCalibration(db: D1DatabaseLike) {
+  const row = await db.prepare("SELECT value FROM fuel_history_meta WHERE key='level_calibration'").first<{value: string}>();
+  return row ? JSON.parse(row.value) as {id: string; from: string} : null;
+}
+
+async function calibrationTransition(db: D1DatabaseLike, id: unknown) {
+  if (id != null && (typeof id !== "string" || !id.trim() || id.length > 160)) throw new Error("Calibración de nivel inválida.");
+  const previous = await levelCalibration(db);
+  if (previous && id == null) throw new Error("La lectura debe identificar su calibración.");
+  return {id: id as string | null | undefined, changed: id != null && id !== previous?.id};
+}
+
+function calibrationStatements(db: D1DatabaseLike, id: string, from: string) {
+  const value = JSON.stringify({id, from});
+  return [db.prepare(`INSERT INTO fuel_history_meta(key,value) VALUES ('level_calibration',?)
+    ON CONFLICT(key) DO UPDATE SET value=excluded.value`).bind(value),
+    db.prepare("INSERT INTO fuel_history_meta(key,value) VALUES (?,?)").bind(`level_calibration:${from}`, value),
+    db.prepare("DELETE FROM fuel_history_meta WHERE key='level_display_reference'")];
+}
+
+async function ingestFuelLevelRangeEvidence(db: D1DatabaseLike, bounds: unknown, occurredAt: string,
+  source = "OCIO", telemetrySessionId?: string | null, calibrationId?: unknown) {
+  const range = bounds as {minLiters?: number; maxLiters?: number} | null;
+  if (!range || typeof range.minLiters !== "number" || typeof range.maxLiters !== "number"
+    || !Number.isFinite(range.minLiters) || !Number.isFinite(range.maxLiters)
+    || range.minLiters < 0 || range.maxLiters > CAPACITY_LITERS || range.minLiters >= range.maxLiters) throw new Error("Rango de nivel inválido.");
+  const at = new Date(occurredAt);
+  if (!Number.isFinite(at.getTime()) || at.getTime() <= 0 || at.getTime() > Date.now()+300000) throw new Error("Fecha de lectura inválida.");
+  const iso = at.toISOString(), session = optionalTelemetrySessionId(telemetrySessionId);
+  if (telemetrySessionId != null && !session) throw new Error("Sesión inválida.");
+  await assertAfterFieldReset(db, iso);
+  const prior = await db.prepare("SELECT min_liters AS low,max_liters AS high,source,telemetry_session_id AS session FROM fuel_level_ranges WHERE occurred_at=?")
+    .bind(iso).first<{low: number; high: number; source: string; session: string | null}>();
+  const normalizedSource = source.trim().slice(0,80) || "OCIO";
+  if (prior) {
+    if (prior.low !== range.minLiters || prior.high !== range.maxLiters || prior.source !== normalizedSource || prior.session !== session) throw new Error("Ya existe otra lectura con la misma fecha.");
+    return {status: "duplicate", occurredAt: iso};
+  }
+  const latest = await fuelSensorState(db);
+  if (iso <= latest.latestReadingAt) throw new Error("La lectura es anterior a la última muestra registrada.");
+  const calibration = await calibrationTransition(db, calibrationId);
+  await db.batch([
+    db.prepare("INSERT INTO fuel_level_ranges(occurred_at,min_liters,max_liters,source,telemetry_session_id) VALUES (?,?,?,?,?)")
+      .bind(iso, range.minLiters, range.maxLiters, normalizedSource, session),
+    ...(calibration.changed ? calibrationStatements(db, calibration.id!, iso) : []),
+  ]);
+  // No insertar el punto medio en el detector de recepciones ni en la curva
+  // histórica de lecturas puntuales: el intervalo es la evidencia original.
+  return {status: "range", occurredAt: iso, levelRange: range, detectedLiters: 0, receiptId: null};
+}
+
+export async function ingestFuelLevelReading(...args: Parameters<typeof ingestFuelLevelPointEvidence>) {
+  const result = await ingestFuelLevelPointEvidence(...args);
+  await saveDisplayReference(args[0]);
+  return result;
+}
+
+async function ingestFuelLevelPointEvidence(
   db: D1DatabaseLike,
   levelLiters: number,
   occurredAt: string,
   source = "OCIO",
   telemetrySessionId?: string | null,
+  calibrationId?: unknown,
 ) {
   if (!Number.isFinite(levelLiters) || levelLiters < 0 || levelLiters > CAPACITY_LITERS) {
     throw new Error(`El nivel debe estar entre 0 y ${CAPACITY_LITERS} litros.`);
@@ -410,6 +542,9 @@ export async function ingestFuelLevelReading(
   if (timestamp.getTime() > Date.now() + 5 * 60_000) throw new Error("La lectura no puede estar en el futuro.");
   const iso = timestamp.toISOString();
   await assertAfterFieldReset(db, iso);
+  const priorRange = await db.prepare("SELECT occurred_at AS occurredAt FROM fuel_level_ranges ORDER BY occurred_at DESC LIMIT 1")
+    .first<{occurredAt: string}>();
+  if (priorRange && iso <= priorRange.occurredAt) throw new Error("La lectura es anterior al último intervalo registrado.");
   const normalizedSource = source.trim().slice(0, 80) || "OCIO";
   const normalizedSessionId = optionalTelemetrySessionId(telemetrySessionId);
   if (telemetrySessionId != null && !normalizedSessionId) throw new Error("La sesión de telemetría no es válida.");
@@ -430,11 +565,12 @@ export async function ingestFuelLevelReading(
   if (iso <= String(state.lastReadingAt)) throw new Error("La lectura es anterior a la última muestra registrada.");
 
   const previousAt = new Date(String(state.lastReadingAt));
+  const calibration = await calibrationTransition(db, calibrationId);
   const firstReading = String(state.lastReadingAt) === "1970-01-01T00:00:00.000Z";
   const sessionChanged = Boolean(normalizedSessionId && normalizedSessionId !== state.telemetrySessionId);
   const telemetryGap = !firstReading
     && timestamp.getTime() - previousAt.getTime() > TELEMETRY_GAP_MINUTES * 60_000;
-  if (firstReading || telemetryGap) {
+  if (calibration.changed || firstReading || telemetryGap || (priorRange && priorRange.occurredAt > String(state.lastReadingAt))) {
     await db.batch([
       db.prepare("INSERT INTO fuel_level_readings(occurred_at,level_liters,source) VALUES (?,?,?)")
         .bind(iso, round1(levelLiters), normalizedSource),
@@ -443,9 +579,10 @@ export async function ingestFuelLevelReading(
         last_reading_at=? WHERE id=1`)
         .bind(round1(levelLiters), round1(levelLiters), round1(levelLiters), iso, iso,
           normalizedSessionId ?? state.telemetrySessionId ?? null, iso),
+      ...(calibration.changed ? calibrationStatements(db, calibration.id!, iso) : []),
     ]);
     return {
-      status: firstReading ? "initialized" : "warming_up",
+      status: calibration.changed ? "calibration_changed" : firstReading ? "initialized" : "warming_up",
       receiptId: null,
       detectedLiters: 0,
       levelLiters: round1(levelLiters),
@@ -638,6 +775,8 @@ async function extendRecentPendingReceipt(db: D1DatabaseLike, continuation: {
       )
     ORDER BY movements.created_at DESC LIMIT 1`).first<Record<string, unknown>>();
   if (!receipt?.id || !receipt.detectedAt) return null;
+  const calibration = await levelCalibration(db);
+  if (calibration && storedInstant(String(receipt.occurredAt)).getTime() < new Date(calibration.from).getTime()) return null;
   const detectedAt = storedInstant(String(receipt.detectedAt));
   const continuationMinutes = (continuation.occurredAt.getTime() - detectedAt.getTime()) / 60_000;
   if (!Number.isFinite(continuationMinutes) || continuationMinutes < 0
@@ -817,6 +956,8 @@ async function updateReceiptCandidate(db: D1DatabaseLike, candidate: {
 }
 
 async function minuteLevelBuckets(db: D1DatabaseLike, from: Date, to: Date): Promise<MinuteLevelBucket[]> {
+  const calibration = await levelCalibration(db);
+  if (calibration && new Date(calibration.from).getTime() > from.getTime()) from = new Date(calibration.from);
   const readings = await db.prepare(`SELECT occurred_at AS occurredAt,level_liters AS levelLiters
     FROM fuel_level_readings WHERE occurred_at>=? AND occurred_at<=? ORDER BY occurred_at`)
     .bind(from.toISOString(), to.toISOString()).all<{ occurredAt: string; levelLiters: number }>();

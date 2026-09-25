@@ -27,6 +27,129 @@ function post(worker, env, path, body) {
   }), env, executionContext);
 }
 
+test("a manufacturer calibration change is not a receipt and later real filling is still detected", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "fuel-calibration-"));
+  const database = createLocalD1(join(directory, "web.sqlite3"));
+  globalThis.__FUEL_EDGE_LOCAL_DB__ = database;
+  try {
+    const worker = await loadWorker(), env = {FUEL_SENSOR_INGEST_KEY: sensorKey};
+    const start = Date.now() - 40 * 60000;
+    const send = (minute, levelLiters, calibrationId) => post(worker, env, "/api/fuel-history/readings", {
+      levelLiters, occurredAt: new Date(start + minute * 60000).toISOString(),
+      telemetrySessionId: "same-session", calibrationId,
+    });
+    for (let minute = 0; minute < 5; minute++) assert.equal((await send(minute, 1000)).status, 201);
+    const changed = await send(5, 1150, "manufacturer-v1");
+    assert.equal((await changed.json()).detection.status, "calibration_changed");
+    assert.equal((await send(5, 1150, "manufacturer-v1")).status, 201);
+    assert.equal((await send(6, 1150)).status, 400);
+    assert.equal((await send(6, 1150, "x".repeat(161))).status, 400);
+    for (let minute = 6; minute <= 12; minute++) assert.equal((await send(minute, 1150, "manufacturer-v1")).status, 201);
+    assert.equal((await database.prepare("SELECT COUNT(*) AS n FROM fuel_movements").first()).n, 0);
+    assert.equal((await database.prepare("SELECT COUNT(*) AS n FROM fuel_history_meta WHERE key LIKE 'level_calibration:%'").first()).n, 1);
+    for (let minute = 13; minute <= 27; minute++) assert.equal((await send(minute, 1300, "manufacturer-v1")).status, 201);
+    const receipts = await database.prepare("SELECT liters FROM fuel_movements WHERE movement_type='receipt'").all();
+    assert.equal(receipts.results.length, 1);
+    assert.equal(receipts.results[0].liters, 150);
+  } finally {
+    delete globalThis.__FUEL_EDGE_LOCAL_DB__;
+    database.close();
+    await rm(directory, {recursive: true, force: true});
+  }
+});
+
+test("a changed calibration cannot extend a previous pending receipt and accepts an interval transition", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "fuel-calibration-receipt-"));
+  const database = createLocalD1(join(directory, "web.sqlite3"));
+  globalThis.__FUEL_EDGE_LOCAL_DB__ = database;
+  try {
+    const worker = await loadWorker(), env = {FUEL_SENSOR_INGEST_KEY: sensorKey};
+    const start = Date.now() - 45 * 60000;
+    const send = (minute, levelLiters, calibrationId) => post(worker, env, "/api/fuel-history/readings", {
+      levelLiters, occurredAt: new Date(start + minute * 60000).toISOString(),
+      telemetrySessionId: "one-session", calibrationId,
+    });
+    for (let minute = 0; minute < 5; minute++) await send(minute, 1000);
+    for (let minute = 5; minute <= 19; minute++) await send(minute, 1300);
+    const before = await database.prepare("SELECT id,liters,review_status FROM fuel_movements WHERE movement_type='receipt'").first();
+    assert.equal(before.liters, 300);
+    assert.equal(before.review_status, "pending");
+    const interval = {levelRange: {minLiters:1490,maxLiters:1510},
+      occurredAt:new Date(start+20*60000).toISOString(), calibrationId:"manufacturer-v1"};
+    assert.equal((await post(worker,env,"/api/fuel-history/readings",interval)).status,201);
+    assert.equal((await post(worker,env,"/api/fuel-history/readings",interval)).status,201);
+    for (let minute = 21; minute <= 35; minute++) assert.equal((await send(minute, 1500, "manufacturer-v1")).status,201);
+    assert.deepEqual(await database.prepare("SELECT id,liters,review_status FROM fuel_movements WHERE movement_type='receipt'").first(),before);
+    assert.equal((await database.prepare("SELECT COUNT(*) AS n FROM fuel_movements WHERE movement_type='receipt'").first()).n,1);
+    assert.equal((await database.prepare("SELECT COUNT(*) AS n FROM fuel_history_meta WHERE key LIKE 'level_calibration:%'").first()).n,1);
+  } finally {
+    delete globalThis.__FUEL_EDGE_LOCAL_DB__;
+    database.close();
+    await rm(directory, {recursive: true, force: true});
+  }
+});
+
+test("el rango persiste, llega al estado de pantalla y no se convierte en una recepción", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "fuel-range-"));
+  const database = createLocalD1(join(directory, "web.sqlite3"));
+  globalThis.__FUEL_EDGE_LOCAL_DB__ = database;
+  try {
+    const worker = await loadWorker(), env = {FUEL_SENSOR_INGEST_KEY: sensorKey};
+    const start = Date.now()-10*60_000;
+    const point = await post(worker, env, "/api/fuel-history/readings", {levelLiters:750, occurredAt:new Date(start).toISOString()});
+    assert.equal(point.status,201);
+    const body = {levelRange:{minLiters:773.77,maxLiters:798.36}, occurredAt:new Date(start+60000).toISOString(),telemetrySessionId:"range-boot"};
+    assert.equal((await post(worker,env,"/api/fuel-history/readings",body)).status,201);
+    assert.equal((await post(worker,env,"/api/fuel-history/readings",body)).status,201);
+    assert.equal((await post(worker,env,"/api/fuel-history/readings",{...body,levelRange:{minLiters:800,maxLiters:700}})).status,400);
+    assert.equal((await database.prepare("SELECT COUNT(*) AS n FROM fuel_level_readings").first()).n,1);
+    assert.equal((await database.prepare("SELECT COUNT(*) AS n FROM fuel_movements").first()).n,0);
+    const {readFile} = await import("node:fs/promises"), ts = (await import("typescript")).default;
+    const capacity = await readFile(new URL("../shared/tank-capacity.ts",import.meta.url),"utf8");
+    const capacityCode = ts.transpileModule(capacity,{compilerOptions:{module:ts.ModuleKind.ESNext}}).outputText;
+    const source = (await readFile(new URL("../worker/fuel-history-store.ts",import.meta.url),"utf8"))
+      .replace("../shared/tank-capacity",`data:text/javascript;base64,${Buffer.from(capacityCode).toString("base64")}`);
+    const compiled = ts.transpileModule(source,{compilerOptions:{module:ts.ModuleKind.ESNext}}).outputText;
+    const {fuelSensorState} = await import(`data:text/javascript;base64,${Buffer.from(compiled).toString("base64")}`);
+    const sensor = await fuelSensorState(database);
+    assert.deepEqual(sensor.levelRange,body.levelRange);
+    assert.equal(sensor.latestReadingAt,body.occurredAt);
+    assert.equal(sensor.telemetrySessionId,"range-boot");
+    assert.equal(sensor.displayReference.liters,786);
+    assert.equal(sensor.displayReference.sourceAt,body.occurredAt);
+    const quality = {quality:"settling",occurredAt:new Date(start+90000).toISOString(),telemetrySessionId:"range-boot"};
+    assert.equal((await post(worker,env,"/api/fuel-history/readings",quality)).status,201);
+    assert.equal((await post(worker,env,"/api/fuel-history/readings",{...quality,quality:"invented"})).status,400);
+    assert.equal((await post(worker,env,"/api/fuel-history/readings",{...quality,levelLiters:1000})).status,400);
+    // Cambiar el estado del filtro nunca renueva la fecha ni el volumen OCIO.
+    const validating = await fuelSensorState(database);
+    assert.equal(validating.latestReadingAt,body.occurredAt);
+    assert.deepEqual(validating.levelRange,body.levelRange);
+    assert.deepEqual(validating.measurementQuality,{status:"settling",occurredAt:quality.occurredAt,telemetrySessionId:"range-boot"});
+    await post(worker,env,"/api/fuel-history/readings",{...quality,quality:"valid",occurredAt:new Date(start+80000).toISOString()});
+    assert.equal((await fuelSensorState(database)).measurementQuality.status,"settling");
+    assert.equal((await post(worker,env,"/api/fuel-history/readings",{...quality,quality:"calibration_pending"})).status,201);
+    const pendingCalibration = await fuelSensorState(database);
+    assert.equal(pendingCalibration.measurementQuality.status,"calibration_pending");
+    assert.equal(pendingCalibration.latestReadingAt,body.occurredAt);
+    assert.equal((await database.prepare("SELECT COUNT(*) AS n FROM fuel_level_readings").first()).n,1);
+    assert.equal((await database.prepare("SELECT COUNT(*) AS n FROM fuel_movements").first()).n,0);
+    const settled = await post(worker,env,"/api/fuel-history/readings",{levelLiters:790,occurredAt:new Date(start+120000).toISOString()});
+    assert.equal(settled.status,201);
+    assert.equal((await settled.json()).detection.status,"warming_up");
+    assert.equal((await fuelSensorState(database)).levelRange,null);
+    const noiseAt=new Date(start+180000).toISOString();
+    assert.equal((await post(worker,env,"/api/fuel-history/readings",{levelLiters:790.6,occurredAt:noiseAt})).status,201);
+    const afterNoise=await fuelSensorState(database);
+    assert.equal(afterNoise.currentLevel,790.6);
+    assert.equal(afterNoise.displayReference.liters,790);
+    assert.equal(afterNoise.displayReference.sourceAt,noiseAt);
+    const reopened=createLocalD1(join(directory,"web.sqlite3"));
+    try { assert.deepEqual((await fuelSensorState(reopened)).displayReference,afterNoise.displayReference); }
+    finally { reopened.close(); }
+  } finally { delete globalThis.__FUEL_EDGE_LOCAL_DB__; database.close(); await rm(directory,{recursive:true,force:true}); }
+});
+
 test("a K24 dispatch does not turn the next unchanged OCIO reading into a receipt", async () => {
   const directory = await mkdtemp(join(tmpdir(), "fuel-history-regression-"));
   const database = createLocalD1(join(directory, "web.sqlite3"));

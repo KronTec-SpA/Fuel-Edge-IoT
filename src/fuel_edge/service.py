@@ -466,8 +466,16 @@ class FuelEdgeService:
     def record_k24_pulse(
         self, count: int = 1, at: datetime | None = None
     ) -> AuditRecord | None:
+        if not isinstance(count, int) or isinstance(count, bool) or count <= 0:
+            raise ValueError("count debe ser un entero positivo")
         at = at or datetime.now(timezone.utc)
         with self._lock:
+            # Guardar cada lote antes de procesarlo: el balance sobrevive a un
+            # corte durante una carga, una prueba o un flujo no autorizado.
+            try:
+                self.store.record_inventory_pulses(count)
+            except Exception as exc:
+                self._fail_safe_after_storage_error(exc)
             if self.machine.state is EdgeState.MANUAL_MODE:
                 if count <= 0:
                     raise ValueError("count debe ser positivo")
@@ -669,6 +677,9 @@ class FuelEdgeService:
         occurred_at: str,
         *,
         source: str = "OCIO",
+        min_liters: float | None = None,
+        max_liters: float | None = None,
+        calibration_id: str | None = None,
     ) -> int:
         if not isfinite(level_liters) or level_liters < 0:
             raise ValueError("level_liters debe ser finito y no negativo")
@@ -679,6 +690,8 @@ class FuelEdgeService:
             occurred_at=occurred_at,
             source=source,
             telemetry_session_id=self.telemetry_session_id,
+            min_liters=min_liters, max_liters=max_liters,
+            calibration_id=calibration_id,
         )
 
     def publish_status(self) -> int:

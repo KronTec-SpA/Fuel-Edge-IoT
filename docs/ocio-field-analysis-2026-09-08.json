@@ -1,0 +1,63 @@
+{
+  "capturedAt": "2026-09-08T18:16:45.805797+00:00",
+  "timezone": "America/Santiago",
+  "excludedLocalDateIntervals": [
+    {
+      "fromInclusive": "2026-09-01T00:00:00-04:00",
+      "toExclusive": "2026-09-02T00:00:00-04:00"
+    },
+    {
+      "fromInclusive": "2026-09-03T00:00:00-04:00",
+      "toExclusive": "2026-09-04T00:00:00-04:00"
+    }
+  ],
+  "hasRawDiagnostics": false,
+  "note": "Cambios observados; incluyen operaciones reales. No son una estimación aislada del ruido del sensor.",
+  "edge": {
+    "originalCount": 57285,
+    "excludedByLocalDate": {
+      "2026-09-01": 3672,
+      "2026-09-03": 2139
+    },
+    "retainedCount": 51474,
+    "from": "2026-08-16T19:40:43.311430+00:00",
+    "to": "2026-09-08T18:16:04.984633+00:00",
+    "minLiters": 0,
+    "maxLiters": 2500,
+    "adjacentPairsUnder180Seconds": 51453,
+    "publicationGapSeconds": {
+      "p50": 28.787,
+      "p90": 60.173
+    },
+    "absoluteChangeLiters": {
+      "p50": 2.504,
+      "p90": 10.019,
+      "p99": 22.541,
+      "max": 961.147
+    }
+  },
+  "web": {
+    "originalCount": 55609,
+    "excludedByLocalDate": {
+      "2026-09-01": 3672,
+      "2026-09-03": 2139
+    },
+    "retainedCount": 49798,
+    "from": "2026-08-19T20:35:15.771Z",
+    "to": "2026-09-08T18:16:04.984Z",
+    "minLiters": 0,
+    "maxLiters": 1351.9,
+    "adjacentPairsUnder180Seconds": 49791,
+    "publicationGapSeconds": {
+      "p50": 24.928,
+      "p90": 60.174
+    },
+    "absoluteChangeLiters": {
+      "p50": 2.5,
+      "p90": 10,
+      "p99": 22.4,
+      "max": 849.7
+    }
+  },
+  "sourceSha256": "31e27130b7f152992fb74217d3a12f3da38fec4654bb7983d8630b36d3f00159"
+}

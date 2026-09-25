@@ -1,0 +1,21 @@
+{
+  "status": "active",
+  "at": "2026-09-09T15:01:00.140821+00:00",
+  "referenceId": "ocio-field-440mm-20260909T145420Z",
+  "confirmationId": "e8d4fb90-3489-4529-bb6f-6723b597c928",
+  "revision": 2,
+  "fingerprint": "level-3513e73e400e3a81a0da684186db8c567c9d7e6914f6f533a9287f38f95ae692",
+  "referenceVolts": 2.8547008547008548,
+  "referenceHeightMm": 440.0,
+  "referenceLiters": 869.0,
+  "offsetMm": 61.31519274376416,
+  "heightPerVoltMm": 132.6530612244898,
+  "model": "one-point offset; configured slope retained, pending controlled-fill validation",
+  "physicalCalibrationAtPreserved": "2026-09-09T14:48:43.111Z",
+  "nextDueAtPreserved": "2027-03-08T14:48:43.111Z",
+  "intervalDaysPreserved": 180,
+  "configShaBefore": "5d8b8681031ea84dc04affa9fa7c8afd4931b31df59c97c6cf39c958d2815bf1",
+  "configShaAfter": "61fb914efd848c505d7c5063a8703a08f5bc08664aeefb5e90caaa6894d2595c",
+  "appliedAt": "2026-09-09T15:01:06.415567+00:00",
+  "pulsesBefore": 4229
+}

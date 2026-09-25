@@ -1,0 +1,34 @@
+{
+  "policyId": "ocio-observed-plus-error-v1-density-8375",
+  "densityKgM3": 837.5,
+  "densityKgL": 0.8375,
+  "densitySource": "user_confirmed_field_measurement_20260909",
+  "verificationAt": "2026-09-09T18:14:37.585390+00:00",
+  "confirmationId": "5b895415-207a-4adb-bd95-291b7a55f170",
+  "anchorId": "balance-b65b9e09-c186-4736-b4cb-9b913487bd1d",
+  "uncertainty": {
+    "policyId": "ocio-observed-plus-error-v1-density-8375",
+    "densityKgL": 0.8375,
+    "densityVerified": true,
+    "densitySource": "field_measurement_20260909",
+    "ocioErrorMm": 47.76119402985074,
+    "quantizationHalfStepMm": 5,
+    "k24ErrorLiters": 0,
+    "expectedBounds": {
+      "minLiters": 2594.113,
+      "maxLiters": 2662
+    },
+    "measuredBounds": {
+      "minLiters": 2594.113,
+      "maxLiters": 2662
+    },
+    "differenceBounds": {
+      "minLiters": -67.888,
+      "maxLiters": 67.888
+    }
+  },
+  "pulses": 4229,
+  "release": "20260909-uncertainty",
+  "auditId": 641,
+  "recordedAt": "2026-09-09T18:15:01.705855+00:00"
+}

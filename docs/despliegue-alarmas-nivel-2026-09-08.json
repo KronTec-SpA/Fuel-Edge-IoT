@@ -1,0 +1,76 @@
+{
+  "config": {
+    "volume_conversion": "fm2500_manufacturer",
+    "ocio_calibration_pending": true,
+    "height_full_mm": 1300.0,
+    "input_full_volts": 9.8,
+    "k24_pulses_per_liter": 90.0
+  },
+  "deployment": {
+    "previous_web": "/opt/fuel-edge-web/releases/20260903T205901Z-v1.9.17",
+    "previous_venv": "/opt/fuel-edge/venv",
+    "venv_was_symlink": false,
+    "release": "20260908-alarmas-nivel",
+    "status": "active",
+    "staged_config_sha256": "5d8b8681031ea84dc04affa9fa7c8afd4931b31df59c97c6cf39c958d2815bf1",
+    "activated_at": "2026-09-09T02:17:39.987624+00:00",
+    "completed_at": "2026-09-09T02:17:53.150621+00:00"
+  },
+  "edge": {
+    "quick_check": "ok",
+    "diagnostic_count": 210,
+    "latest_diagnostic": {
+      "calibrationId": "level-b1a51fbc3b7ce11e900e7d4ea43f98411399b4e473bdee428e0666e6c3cc4e01",
+      "candidateHeightMm": 367.3469387755102,
+      "candidateVolumeLiters": 683.3972789115646,
+      "filterQuality": "valid",
+      "occurredAt": "2026-09-09T02:21:18.798014+00:00",
+      "quality": "calibration_pending",
+      "rawAdc": 1134.0,
+      "rawPercent": 28.257457,
+      "volts": 2.769231,
+      "volumeConversion": "fm2500_manufacturer"
+    },
+    "samples_with_candidate_volume": 78,
+    "raw_volts_min": 2.683761,
+    "raw_volts_max": 2.774115,
+    "inventory_state_count": 0,
+    "pending_web": [
+      {
+        "topic": "web/level-reading",
+        "n": 1,
+        "attempts": 0
+      }
+    ],
+    "new_alert_titles": [
+      "Validador sin conexión"
+    ]
+  },
+  "web": {
+    "quick_check": "ok",
+    "status": {
+      "state": "locked",
+      "relay_energized": 0,
+      "validator_online": 1,
+      "k24_healthy": 1,
+      "occurred_at": "2026-09-09T02:21:29.883Z"
+    },
+    "level_quality": {
+      "id": 1,
+      "occurred_at": "2026-09-09T02:21:24.844Z",
+      "quality": "calibration_pending"
+    },
+    "latest_level": {
+      "level_liters": 706.4,
+      "occurred_at": "2026-09-09T02:17:08.873Z"
+    },
+    "movements_count": 64,
+    "new_receipts": 0,
+    "alerts_since_activation": [
+      {
+        "title": "Validador sin conexión",
+        "status": "pending"
+      }
+    ]
+  }
+}

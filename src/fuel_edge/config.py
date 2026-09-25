@@ -10,6 +10,8 @@ import tomllib
 from urllib.parse import urlsplit
 
 from .domain import ControlConfig
+from .ocio_filter import OcioFilterConfig
+from .tank_table import OcioHeightSignal, FIELD_CONVERSION, FIELD_CAPACITY_LITERS, HEIGHT_CONVERSIONS
 
 
 _RELAY_NAME = re.compile(r"^R\d+\.\d+$")
@@ -91,6 +93,9 @@ class TankLevelConfig:
     telemetry_source: str = "OCIO"
     reading_path: Path = DEFAULT_TANK_LEVEL_PATH
     capacity_liters: float = 2500.0
+    volume_conversion: str = "linear"
+    ocio_height_signal: OcioHeightSignal = OcioHeightSignal()
+    ocio_calibration_pending: bool = False
     input_pin: str = "I0.2"
     signal_mode: str = "4-20ma"
     input_empty_volts: float = 2.0
@@ -100,7 +105,8 @@ class TankLevelConfig:
     deadband_percent: float = 0.1
     publish_interval_seconds: float = 60.0
     stability_seconds: float = 15.0
-    stability_band_percent: float = 2.0
+    stability_band_percent: float = 0.25
+    cycle_filter: OcioFilterConfig = OcioFilterConfig()
 
 
 @dataclass(frozen=True, slots=True)
@@ -264,9 +270,31 @@ def _tank_level_config(section: dict[str, object]) -> TankLevelConfig:
     capacity = float(section.get("capacity_liters", 2500.0))
     if not isfinite(capacity) or capacity <= 0:
         raise ValueError("tank_level.capacity_liters debe ser positivo")
+    volume_conversion = str(section.get("volume_conversion", "linear"))
+    calibration_pending = section.get("ocio_calibration_pending", False)
+    if not isinstance(calibration_pending, bool):
+        raise ValueError("tank_level.ocio_calibration_pending debe ser boolean")
+    if volume_conversion == "fm2500_horizontal":
+        raise ValueError("fm2500_horizontal retirado; usar tabla fm2500_manufacturer con señal de altura confirmada")
+    if volume_conversion not in {"linear", *HEIGHT_CONVERSIONS}:
+        raise ValueError("tank_level.volume_conversion inválido")
+    height_signal = OcioHeightSignal(
+        output_mode=str(section.get("ocio_output_mode", "unconfirmed")),
+        height_at_zero_percent_mm=(float(section["ocio_height_at_zero_percent_mm"]) if "ocio_height_at_zero_percent_mm" in section else None),
+        height_at_full_percent_mm=(float(section["ocio_height_at_full_percent_mm"]) if "ocio_height_at_full_percent_mm" in section else None),
+    )
+    if volume_conversion in HEIGHT_CONVERSIONS:
+        expected_capacity = FIELD_CAPACITY_LITERS if volume_conversion == FIELD_CONVERSION else 2500
+        if capacity != expected_capacity:
+            raise ValueError(f"{volume_conversion} requiere capacidad de {expected_capacity:g} L")
+        height_signal.validate()
+        if volume_conversion == FIELD_CONVERSION and height_signal.height_at_full_percent_mm < 1220:
+            raise ValueError("la señal debe cubrir el overflow de 1220 mm")
     source = str(section.get("source", "file")).strip().lower()
     if source not in {"file", "plc_analog"}:
         raise ValueError("tank_level.source debe ser file o plc_analog")
+    if volume_conversion in HEIGHT_CONVERSIONS and source != "plc_analog":
+        raise ValueError(f"{volume_conversion} requiere plc_analog; el archivo de nivel ya contiene litros")
     telemetry_source = str(section.get("telemetry_source", "OCIO")).strip()
     if not telemetry_source or len(telemetry_source) > 80:
         raise ValueError("tank_level.telemetry_source debe tener entre 1 y 80 caracteres")
@@ -308,7 +336,7 @@ def _tank_level_config(section: dict[str, object]) -> TankLevelConfig:
     stability_seconds = float(section.get("stability_seconds", 15.0))
     if not isfinite(stability_seconds) or not 0 <= stability_seconds <= 300:
         raise ValueError("tank_level.stability_seconds debe estar entre 0 y 300")
-    stability_band = float(section.get("stability_band_percent", 2.0))
+    stability_band = float(section.get("stability_band_percent", 0.25))
     if not isfinite(stability_band) or not 0 < stability_band <= 10:
         raise ValueError(
             "tank_level.stability_band_percent debe estar entre 0 (exclusivo) y 10"
@@ -319,6 +347,9 @@ def _tank_level_config(section: dict[str, object]) -> TankLevelConfig:
         telemetry_source=telemetry_source,
         reading_path=Path(section.get("reading_path", DEFAULT_TANK_LEVEL_PATH)),
         capacity_liters=capacity,
+        volume_conversion=volume_conversion,
+        ocio_height_signal=height_signal,
+        ocio_calibration_pending=calibration_pending,
         input_pin=input_pin,
         signal_mode=signal_mode,
         input_empty_volts=empty_volts,
@@ -329,6 +360,13 @@ def _tank_level_config(section: dict[str, object]) -> TankLevelConfig:
         publish_interval_seconds=publish_interval,
         stability_seconds=stability_seconds,
         stability_band_percent=stability_band,
+        cycle_filter=OcioFilterConfig(
+            enabled=section.get("cycle_filter_enabled", True),
+            window_seconds=float(section.get("cycle_window_seconds", 120)),
+            quiet_seconds=float(section.get("cycle_quiet_seconds", 15)),
+            band_percent=float(section.get("cycle_band_percent", 0.25)),
+            support_fraction=float(section.get("cycle_support_fraction", 0.8)),
+        ),
     )
 
 

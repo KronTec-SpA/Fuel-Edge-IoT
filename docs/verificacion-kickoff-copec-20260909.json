@@ -1,0 +1,293 @@
+{
+  "verifiedAt": "2026-09-09T17:35:59.329327+00:00",
+  "release": {
+    "previous_web": "/opt/fuel-edge-web/releases/20260909-v1.9.25-checkmarks",
+    "previous_venv": "/opt/fuel-edge/releases/20260909-calibracion-conjunta/venv",
+    "venv_was_symlink": true,
+    "release": "20260909-copec-final",
+    "status": "active",
+    "staged_config_sha256": "3c3e9c4240adde748b686ec493e34ca06dd58d292c06b8cd55567901c37d13ff",
+    "activated_at": "2026-09-09T17:31:47.150304+00:00",
+    "completed_at": "2026-09-09T17:31:59.825475+00:00",
+    "inventory": "awaiting_filtered_readings"
+  },
+  "reference": {
+    "id": "copec-field-final-20260909",
+    "captureAt": "2026-09-09T17:24:16.695010+00:00",
+    "overflowMm": 1220,
+    "capacityLiters": 2662,
+    "initialMm": 440,
+    "initialLiters": 869,
+    "deliveredLiters": 1793,
+    "initialVolts": 2.8547008547008548,
+    "fullVolts": 8.129426129426129,
+    "fullAdc": 3329,
+    "voltageSource": "median of acceptedPercent in captured ten-minute trace; pressure peaks excluded",
+    "heightAtZeroPercentMm": 17.86111111111103,
+    "heightAtFullPercentMm": 1467.0361111111115,
+    "receiptId": "FR-MANUAL-local-78ad5be65c05af17bf724c66112a180f",
+    "documentReference": "45890930",
+    "supersedesFullHeightMm": 1230,
+    "points": [
+      [
+        440,
+        869
+      ],
+      [
+        510,
+        1069
+      ],
+      [
+        580,
+        1269
+      ],
+      [
+        660,
+        1469
+      ],
+      [
+        730,
+        1669
+      ],
+      [
+        810,
+        1869
+      ],
+      [
+        890,
+        2069
+      ],
+      [
+        970,
+        2269
+      ],
+      [
+        1070,
+        2469
+      ],
+      [
+        1220,
+        2662
+      ]
+    ]
+  },
+  "configuration": {
+    "sha256": "3c3e9c4240adde748b686ec493e34ca06dd58d292c06b8cd55567901c37d13ff"
+  },
+  "services": {
+    "fuel-edge": "active",
+    "fuel-edge-web": "active",
+    "fuel-validator-ota": "active",
+    "fuel-equipment-enrollment": "active"
+  },
+  "certificate": {
+    "appliedAt": "2026-09-09T17:31:56.651490+00:00",
+    "calibratedAt": "2026-09-09T14:48:43.111000+00:00",
+    "confirmationId": "5b895415-207a-4adb-bd95-291b7a55f170",
+    "fingerprint": "level-a5d09a4ed09834f4bb9427f359b44d958f47492aa67924a36b2c57726e51ec01",
+    "revision": 3,
+    "siteId": "concha-y-toro-piloto"
+  },
+  "k24Pulses": 4229,
+  "inventoryState": {
+    "balanceAnchor": {
+      "calibrationId": "{\"adc\": 4095, \"confirmationId\": \"5b895415-207a-4adb-bd95-291b7a55f170\", \"curveId\": \"field-copec-20260909-linear-v1-b0a652dc4528beeb\", \"empty\": 0.0, \"full\": 9.8, \"heightAtFullPercentMm\": 1467.0361111111115, \"heightAtZeroPercentMm\": 17.86111111111103, \"heightResolutionMm\": 10, \"label\": \"OCIO\", \"ocioFilter\": {\"band_percent\": 0.25, \"enabled\": true, \"quiet_seconds\": 15.0, \"support_fraction\": 0.8, \"window_seconds\": 120.0}, \"ocioOutputMode\": \"linear_height\", \"overflowHeightMm\": 1220, \"pin\": \"I0.2\", \"signal\": \"0-10v\", \"source\": \"plc_analog\", \"volumeConversion\": \"fm2500_field_20260909\"}",
+      "capacityLiters": 2662.0,
+      "id": "balance-b65b9e09-c186-4736-b4cb-9b913487bd1d",
+      "levelLiters": 2662.0,
+      "occurredAt": "2026-09-09T17:35:58.377115+00:00",
+      "pulses": 4229,
+      "pulsesPerLiter": 90.0
+    },
+    "baseline": {
+      "calibrationId": "{\"adc\": 4095, \"confirmationId\": \"5b895415-207a-4adb-bd95-291b7a55f170\", \"curveId\": \"field-copec-20260909-linear-v1-b0a652dc4528beeb\", \"empty\": 0.0, \"full\": 9.8, \"heightAtFullPercentMm\": 1467.0361111111115, \"heightAtZeroPercentMm\": 17.86111111111103, \"heightResolutionMm\": 10, \"label\": \"OCIO\", \"ocioFilter\": {\"band_percent\": 0.25, \"enabled\": true, \"quiet_seconds\": 15.0, \"support_fraction\": 0.8, \"window_seconds\": 120.0}, \"ocioOutputMode\": \"linear_height\", \"overflowHeightMm\": 1220, \"pin\": \"I0.2\", \"signal\": \"0-10v\", \"source\": \"plc_analog\", \"volumeConversion\": \"fm2500_field_20260909\"}",
+      "capacityLiters": 2662.0,
+      "levelLiters": 2662.0,
+      "occurredAt": "2026-09-09T17:35:58.377115+00:00",
+      "pulses": 4229,
+      "pulsesPerLiter": 90.0
+    },
+    "pending": null
+  },
+  "signal": {
+    "samplesSinceCalibration": 240,
+    "latest": {
+      "acceptedHeightMm": 1220.0000000000002,
+      "acceptedPercent": 82.95332785128703,
+      "acceptedRange": null,
+      "acceptedVolumeLiters": 2662.0,
+      "occurredAt": "2026-09-09T17:35:58.377048+00:00",
+      "quality": "valid",
+      "rawAdc": 3328.0,
+      "rawPercent": 82.928409,
+      "support": 0.9083,
+      "volts": 8.126984,
+      "volumeConversion": "fm2500_field_20260909"
+    },
+    "acceptedLevels": [
+      2662.0
+    ],
+    "acceptedVolts": [
+      8.126984,
+      8.129426
+    ],
+    "conversionErrors": 0
+  },
+  "calibration": {
+    "site_id": "concha-y-toro-piloto",
+    "interval_days": 180,
+    "revision": 3,
+    "confirmation_id": "5b895415-207a-4adb-bd95-291b7a55f170",
+    "calibrated_at": "2026-09-09T14:48:43.111Z",
+    "calibrated_by": "usr-master",
+    "calibrated_by_name": "Pedro Coloma",
+    "next_due_at": "2027-03-08T14:48:43.111Z",
+    "fingerprint": "level-a5d09a4ed09834f4bb9427f359b44d958f47492aa67924a36b2c57726e51ec01",
+    "applied_revision": 3,
+    "applied_at": "2026-09-09T17:31:56.651Z",
+    "controller_fingerprint": "level-a5d09a4ed09834f4bb9427f359b44d958f47492aa67924a36b2c57726e51ec01",
+    "controller_seen_at": "2026-09-09T17:35:57.049Z",
+    "controller_session_id": "fee8bc34-fd4f-4d25-be4d-b418da18a641",
+    "controller_pending": 0
+  },
+  "runtime": {
+    "id": 1,
+    "module_id": "rpiplc-19r-01",
+    "site_id": "concha-y-toro-piloto",
+    "state": "locked",
+    "relay_energized": 0,
+    "validator_online": 1,
+    "nfc_ready": 1,
+    "k24_enabled": 1,
+    "k24_healthy": 1,
+    "tank_level_enabled": 1,
+    "occurred_at": "2026-09-09T17:35:59.234Z",
+    "telemetry_session_id": "fee8bc34-fd4f-4d25-be4d-b418da18a641",
+    "technology_adoption_stage": "full",
+    "adoption_policy_revision": 15
+  },
+  "sensor": {
+    "id": 1,
+    "capacity_liters": 2662.0,
+    "baseline_level_liters": 2662.0,
+    "last_level_liters": 2662.0,
+    "peak_level_liters": 2662.0,
+    "active_receipt_id": null,
+    "active_started_at": null,
+    "last_reading_at": "2026-09-09T17:35:58.377Z",
+    "baseline_started_at": "2026-09-09T17:35:58.377Z",
+    "telemetry_session_id": "fee8bc34-fd4f-4d25-be4d-b418da18a641",
+    "warmup_started_at": null
+  },
+  "quality": {
+    "id": 1,
+    "occurred_at": "2026-09-09T17:35:57.369Z",
+    "quality": "valid",
+    "telemetry_session_id": "fee8bc34-fd4f-4d25-be4d-b418da18a641"
+  },
+  "latestReadings": [
+    {
+      "occurred_at": "2026-09-09T17:35:58.377Z",
+      "level_liters": 2662.0,
+      "source": "OCIO"
+    },
+    {
+      "occurred_at": "2026-09-09T17:34:57.648Z",
+      "level_liters": 2662.0,
+      "source": "OCIO"
+    },
+    {
+      "occurred_at": "2026-09-09T17:33:57.028Z",
+      "level_liters": 2662.0,
+      "source": "OCIO"
+    },
+    {
+      "occurred_at": "2026-09-09T15:09:00.247Z",
+      "level_liters": 1365.0,
+      "source": "OCIO"
+    },
+    {
+      "occurred_at": "2026-09-09T14:58:59.979Z",
+      "level_liters": 710.8,
+      "source": "OCIO"
+    }
+  ],
+  "receipt": {
+    "id": "FR-MANUAL-local-78ad5be65c05af17bf724c66112a180f",
+    "movement_type": "receipt",
+    "occurred_at": "2026-09-09T15:45:00.000Z",
+    "liters": 1793.0,
+    "opening_level_liters": 869.0,
+    "closing_level_liters": 2662.0,
+    "source": "COPEC",
+    "reference_id": "MANUAL-local-78ad5be65c05af17bf724c66112a180f",
+    "detail": "Recepci\u00f3n calibraci\u00f3n.",
+    "operator_id": null,
+    "equipment_id": null,
+    "is_master": 0,
+    "detected_automatically": 0,
+    "confidence": 1.0,
+    "detection_status": "confirmed",
+    "created_at": "2026-09-09 15:46:20",
+    "classification": "standard",
+    "review_status": "approved",
+    "original_liters": 1793.0,
+    "document_reference": "45890930",
+    "reviewed_by_user_id": "usr-master",
+    "reviewed_by_name": "Pedro Coloma",
+    "reviewed_at": "2026-09-09T15:46:20.625Z",
+    "review_note": "Recepci\u00f3n calibraci\u00f3n.",
+    "authorization_evidence": "legacy",
+    "adoption_stage": null,
+    "assisted_mode": 0,
+    "equipment_issue": null,
+    "legacy_id": null,
+    "manual_mode_session_id": null
+  },
+  "receiptCount": 1,
+  "movementCount": 66,
+  "newMovements": [],
+  "balanceAnchor": {
+    "id": "balance-b65b9e09-c186-4736-b4cb-9b913487bd1d",
+    "levelLiters": 2662,
+    "pulses": 4229,
+    "occurredAt": "2026-09-09T17:35:58.377Z",
+    "calibrationId": "{\"adc\": 4095, \"confirmationId\": \"5b895415-207a-4adb-bd95-291b7a55f170\", \"curveId\": \"field-copec-20260909-linear-v1-b0a652dc4528beeb\", \"empty\": 0.0, \"full\": 9.8, \"heightAtFullPercentMm\": 1467.0361111111115, \"heightAtZeroPercentMm\": 17.86111111111103, \"heightResolutionMm\": 10, \"label\": \"OCIO\", \"ocioFilter\": {\"band_percent\": 0.25, \"enabled\": true, \"quiet_seconds\": 15.0, \"support_fraction\": 0.8, \"window_seconds\": 120.0}, \"ocioOutputMode\": \"linear_height\", \"overflowHeightMm\": 1220, \"pin\": \"I0.2\", \"signal\": \"0-10v\", \"source\": \"plc_analog\", \"volumeConversion\": \"fm2500_field_20260909\"}",
+    "capacityLiters": 2662,
+    "pulsesPerLiter": 90
+  },
+  "latestBalanceSample": {
+    "id": "balance-sample-674be52b-3970-4dce-b374-abedbc87a4f4",
+    "siteId": "concha-y-toro-piloto",
+    "occurredAt": "2026-09-09T17:35:58.377Z",
+    "anchor": {
+      "id": "balance-b65b9e09-c186-4736-b4cb-9b913487bd1d",
+      "levelLiters": 2662,
+      "pulses": 4229,
+      "occurredAt": "2026-09-09T17:35:58.377Z",
+      "calibrationId": "{\"adc\": 4095, \"confirmationId\": \"5b895415-207a-4adb-bd95-291b7a55f170\", \"curveId\": \"field-copec-20260909-linear-v1-b0a652dc4528beeb\", \"empty\": 0.0, \"full\": 9.8, \"heightAtFullPercentMm\": 1467.0361111111115, \"heightAtZeroPercentMm\": 17.86111111111103, \"heightResolutionMm\": 10, \"label\": \"OCIO\", \"ocioFilter\": {\"band_percent\": 0.25, \"enabled\": true, \"quiet_seconds\": 15.0, \"support_fraction\": 0.8, \"window_seconds\": 120.0}, \"ocioOutputMode\": \"linear_height\", \"overflowHeightMm\": 1220, \"pin\": \"I0.2\", \"signal\": \"0-10v\", \"source\": \"plc_analog\", \"volumeConversion\": \"fm2500_field_20260909\"}",
+      "capacityLiters": 2662,
+      "pulsesPerLiter": 90
+    },
+    "measuredLiters": 2662,
+    "pulsesTotal": 4229,
+    "calibrationId": "{\"adc\": 4095, \"confirmationId\": \"5b895415-207a-4adb-bd95-291b7a55f170\", \"curveId\": \"field-copec-20260909-linear-v1-b0a652dc4528beeb\", \"empty\": 0.0, \"full\": 9.8, \"heightAtFullPercentMm\": 1467.0361111111115, \"heightAtZeroPercentMm\": 17.86111111111103, \"heightResolutionMm\": 10, \"label\": \"OCIO\", \"ocioFilter\": {\"band_percent\": 0.25, \"enabled\": true, \"quiet_seconds\": 15.0, \"support_fraction\": 0.8, \"window_seconds\": 120.0}, \"ocioOutputMode\": \"linear_height\", \"overflowHeightMm\": 1220, \"pin\": \"I0.2\", \"signal\": \"0-10v\", \"source\": \"plc_analog\", \"volumeConversion\": \"fm2500_field_20260909\"}",
+    "pulsesPerLiter": 90,
+    "meterHealthy": true
+  },
+  "balance": {
+    "initialLiters": 2662,
+    "receivedAfterAnchorLiters": 0,
+    "dispensedLiters": 0.0,
+    "expectedLiters": 2662.0,
+    "measuredLiters": 2662,
+    "differenceLiters": 0.0
+  },
+  "displayReference": [
+    {
+      "key": "level_display_reference",
+      "value": "{\"liters\":2662,\"sourceAt\":\"2026-09-09T17:35:58.377Z\",\"telemetrySessionId\":\"fee8bc34-fd4f-4d25-be4d-b418da18a641\",\"ranged\":false}"
+    }
+  ],
+  "ready": true
+}

@@ -1,0 +1,19 @@
+{
+  "sourceCaptureAt": "2026-09-09T17:24:16.695010+00:00",
+  "sourceSamples": 569,
+  "sourcePeriod": [
+    "2026-09-09T17:14:17.595634+00:00",
+    "2026-09-09T17:23:52.654424+00:00"
+  ],
+  "rawVolts": {
+    "min": 7.995116,
+    "median": 8.129426,
+    "max": 8.788767
+  },
+  "publishedCount": 8,
+  "publishedLiters": [
+    2662.0
+  ],
+  "conversionErrors": [],
+  "result": "all filtered readings at full remain 2662 L; no pressure peaks published"
+}

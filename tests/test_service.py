@@ -61,6 +61,8 @@ class FuelEdgeServiceTests(unittest.TestCase):
         self.assertTrue(self.relay.is_energized)
 
         self.service.record_k24_pulse(count=250)
+        # El total de balance ya debe ser durable antes del cierre del despacho.
+        self.assertEqual(self.store.inventory_pulses(), 250)
         self.service.apply(EdgeEvent.NFC_REMOVED, reason="nfc_removed")
 
         row = self.store.connection.execute(
@@ -241,12 +243,13 @@ class FuelEdgeServiceTests(unittest.TestCase):
 
     def test_tank_level_is_queued_for_durable_web_delivery(self) -> None:
         event_id = self.service.record_tank_level(
-            1432.5, "2026-08-10T12:30:00+00:00"
+            1432.5, "2026-08-10T12:30:00+00:00", calibration_id="manufacturer-curve-v1"
         )
         event = next(item for item in self.store.pending() if item[0] == event_id)
         self.assertEqual(event[1], "web/level-reading")
         self.assertEqual(event[2]["levelLiters"], 1432.5)
         self.assertEqual(event[2]["telemetrySessionId"], "telemetry-test-session")
+        self.assertEqual(event[2]["calibrationId"], "manufacturer-curve-v1")
 
     def test_unauthorized_k24_flow_is_alerted_and_closed_as_a_dispatch(self) -> None:
         started_at = datetime.now(timezone.utc)
@@ -289,7 +292,7 @@ class FuelEdgeServiceTests(unittest.TestCase):
         self.assertIsNone(movements[0][2]["operatorId"])
         final_alerts = self.store.pending(("web/alert",))
         self.assertEqual(len(final_alerts), 1)
-        self.assertIn("393 pulsos (3,930 L)", final_alerts[0][2]["detail"])
+        self.assertIn("393 pulsos (3,9 L)", final_alerts[0][2]["detail"])
 
     def test_active_unauthorized_flow_is_recovered_after_restart(self) -> None:
         started_at = datetime.now(timezone.utc)

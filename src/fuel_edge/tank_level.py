@@ -13,6 +13,9 @@ class TankLevelReading:
     level_liters: float
     occurred_at: str
     source: str = "OCIO"
+    min_liters: float | None = None
+    max_liters: float | None = None
+    calibration_id: str | None = None
 
 
 class TankLevelFileReader:

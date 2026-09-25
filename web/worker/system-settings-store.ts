@@ -1,5 +1,8 @@
 import { audit, type D1DatabaseLike } from "./user-store";
 import { ensureManagedEntityStore } from "./managed-entities-store";
+import { ensureAlertsStore } from "./alerts-store";
+import { summarizePowerEvents, type PowerSupplyEvent } from "../shared/power-supply";
+export type { PowerSupplyEvent } from "../shared/power-supply";
 
 export const DEFAULT_BLE_RSSI_THRESHOLD = -70;
 export const MINIMUM_BLE_RSSI_THRESHOLD = -100;
@@ -16,17 +19,6 @@ export type CommissioningState = {
   reopenedAt: string | null;
   reopenReason: string | null;
   updatedAt: string;
-};
-
-export type PowerSupplyEvent = {
-  id: string;
-  siteId: string;
-  lostAt: string;
-  restoredAt: string;
-  durationSeconds: number;
-  source: "ups_gpio24" | "operator_confirmed" | "reconstructed";
-  lossBootId: string | null;
-  restoreBootId: string | null;
 };
 
 const initialized = new WeakSet<object>();
@@ -124,27 +116,32 @@ export async function listPowerSupplyEvents(
 ) {
   await ensureSystemSettingsStore(db);
   const safeDays = [1, 7, 30].includes(days) ? days : 30;
-  const since = new Date(Date.now() - safeDays * 24 * 60 * 60 * 1000).toISOString();
-  const rows = await db.prepare(`SELECT id,site_id AS siteId,lost_at AS lostAt,
-      restored_at AS restoredAt,duration_seconds AS durationSeconds,source,
-      loss_boot_id AS lossBootId,restore_boot_id AS restoreBootId
-    FROM power_supply_events
-    WHERE site_id=? AND restored_at>=?
-    ORDER BY lost_at DESC`)
-    .bind(siteId, since).all<PowerSupplyEvent>();
+  await ensureAlertsStore(db);
+  const end = Date.now();
+  const start = end - safeDays * 24 * 60 * 60 * 1000;
+  const since = new Date(start).toISOString();
+  const generatedAt = new Date(end).toISOString();
+  const rows = await db.prepare(`SELECT e.id,e.site_id AS siteId,e.lost_at AS lostAt,
+      e.restored_at AS restoredAt,e.duration_seconds AS durationSeconds,e.source,
+      e.loss_boot_id AS lossBootId,e.restore_boot_id AS restoreBootId,
+      a.id AS alertId,a.power_incident_type AS incidentType
+    FROM power_supply_events e
+    LEFT JOIN system_alerts a ON a.id=(SELECT x.id FROM system_alerts x
+      WHERE x.id='edge-alert-' || e.id OR x.root_alert_id='edge-alert-' || e.id
+      ORDER BY x.reopen_sequence DESC LIMIT 1)
+    WHERE e.site_id=? AND e.restored_at>? AND e.lost_at<?
+    ORDER BY e.lost_at DESC`)
+    .bind(siteId, since, generatedAt).all<PowerSupplyEvent>();
   const events = rows.results.map((event) => ({
     ...event,
     durationSeconds: Number(event.durationSeconds),
   }));
   return {
     rangeDays: safeDays,
-    generatedAt: new Date().toISOString(),
+    rangeStart: since,
+    generatedAt,
     events,
-    summary: {
-      outageCount: events.length,
-      totalDowntimeSeconds: events.reduce((total, event) => total + event.durationSeconds, 0),
-      lastOutage: events[0] ?? null,
-    },
+    summary: summarizePowerEvents(events, start, end),
   };
 }
 

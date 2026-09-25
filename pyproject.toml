@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "fuel-telemetry-edge"
-version = "0.3.20"
+version = "0.3.26"
 description = "Agente edge para telemetría de combustible en Raspberry PLC"
 requires-python = ">=3.11"
 dependencies = ["bleak>=0.22,<1", "paho-mqtt>=2.1,<3"]

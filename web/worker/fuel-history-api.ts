@@ -1,9 +1,11 @@
 import { authenticatedUser, confirmAdministratorPassword, json, sameOrigin, type AuthEnvironment } from "./auth";
-import { createManualFuelReceipt, edgeRuntimeStatus, ensureFuelHistoryStore, fuelSensorState, ingestEdgeFuelMovement, ingestEdgeRuntimeStatus, ingestFuelLevelReading, listFuelMovements, listPendingReceiptReviews, resetFuelHistoryStore, reviewFuelReceipt } from "./fuel-history-store";
+import { createManualFuelReceipt, edgeRuntimeStatus, ensureFuelHistoryStore, fuelSensorState, ingestEdgeFuelMovement, ingestEdgeRuntimeStatus, ingestFuelLevelReading, ingestFuelLevelRange, listFuelMovements, listPendingReceiptReviews, resetFuelHistoryStore, reviewFuelReceipt } from "./fuel-history-store";
 import { ensureManagedEntityStore } from "./managed-entities-store";
+import { ingestFuelLevelQuality } from "./fuel-history-store";
 import { parsePermissions } from "./user-store";
 import { readJsonBody, RequestBodyError } from "./request-body";
 import { getCommissioningState } from "./system-settings-store";
+import { machineFuelHistory, machineFuelLoads } from "./machine-fuel-history";
 
 interface FuelHistoryEnvironment extends AuthEnvironment {
   FUEL_SENSOR_INGEST_KEY?: string;
@@ -43,13 +45,24 @@ export async function handleFuelHistoryRequest(request: Request, env: FuelHistor
     return json({ edge, sensor }, 200);
   }
 
-  if (request.method === "GET" && url.pathname === "/api/fuel-history") {
+  if (request.method === "GET" && ["/api/fuel-history", "/api/fuel-history/machines", "/api/fuel-history/machines/loads"].includes(url.pathname)) {
     const actor = await authenticatedUser(request, env);
     if (!actor || !parsePermissions(actor.permissions).includes("view_transactions")) {
       return json({ error: "No tienes permiso para consultar el histórico." }, 403);
     }
     const range = parseRange(url.searchParams.get("from"), url.searchParams.get("to"));
     if (!range) return json({ error: "El rango de fechas no es válido." }, 400);
+    if (url.pathname === "/api/fuel-history/machines") {
+      return json(await machineFuelHistory(env.DB, range.fromIso, range.toExclusiveIso), 200);
+    }
+    if (url.pathname === "/api/fuel-history/machines/loads") {
+      const page = Number(url.searchParams.get("page") ?? "1");
+      const equipmentId = url.searchParams.get("equipmentId");
+      if (equipmentId === null || equipmentId.length > 160 || !Number.isSafeInteger(page) || page < 1 || page > 100000) {
+        return json({ error: "El equipo o la página solicitada no es válido." }, 400);
+      }
+      return json(await machineFuelLoads(env.DB, range.fromIso, range.toExclusiveIso, equipmentId.trim() || null, page), 200);
+    }
     const [movements, pendingReceipts, sensor, edge] = await Promise.all([
       listFuelMovements(env.DB, range.fromIso, range.toExclusiveIso),
       listPendingReceiptReviews(env.DB),
@@ -136,19 +149,29 @@ export async function handleFuelHistoryRequest(request: Request, env: FuelHistor
     const actor = sensorAuthorized ? null : await authenticatedUser(request, env);
     const userAuthorized = actor ? parsePermissions(actor.permissions).includes("manage_system") && sameOrigin(request) : false;
     if (!sensorAuthorized && !userAuthorized) return json({ error: "Lectura de sensor no autorizada." }, 403);
-    let body: { levelLiters?: unknown; occurredAt?: unknown; source?: unknown; telemetrySessionId?: unknown };
+    let body: { quality?: unknown; levelRange?: unknown; levelLiters?: unknown; occurredAt?: unknown; source?: unknown; telemetrySessionId?: unknown; calibrationId?: unknown };
     try { body = await readJsonBody(request, 4096); } catch (error) { return bodyError(error); }
     try {
-      if (typeof body.levelLiters !== "number") throw new Error("El nivel debe ser un número.");
+      if (body.levelRange != null && body.levelLiters != null) throw new Error("Enviar un rango o un punto, no ambos.");
+      if (body.quality == null && body.levelRange == null && typeof body.levelLiters !== "number") throw new Error("El nivel debe ser un número.");
       if (body.telemetrySessionId != null && typeof body.telemetrySessionId !== "string") {
         throw new Error("La sesión de telemetría no es válida.");
       }
-      const result = await ingestFuelLevelReading(
+      if (body.quality != null) {
+        if (body.levelRange != null || body.levelLiters != null) throw new Error("El estado no reemplaza una lectura.");
+        return json({recorded: true, detection: await ingestFuelLevelQuality(env.DB, body.quality,
+          typeof body.occurredAt === "string" ? body.occurredAt : new Date().toISOString(), body.telemetrySessionId ?? null)},201);
+      }
+      const result = body.levelRange != null ? await ingestFuelLevelRange(env.DB, body.levelRange,
+        typeof body.occurredAt === "string" ? body.occurredAt : new Date().toISOString(),
+        typeof body.source === "string" ? body.source : "OCIO", body.telemetrySessionId ?? null, body.calibrationId)
+        : await ingestFuelLevelReading(
         env.DB,
-        body.levelLiters,
+        body.levelLiters as number,
         typeof body.occurredAt === "string" ? body.occurredAt : new Date().toISOString(),
         typeof body.source === "string" ? body.source : "OCIO",
         body.telemetrySessionId ?? null,
+        body.calibrationId,
       );
       return json({ recorded: true, detection: result }, 201);
     } catch (error) {

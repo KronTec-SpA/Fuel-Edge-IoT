@@ -1,8 +1,11 @@
 import { ensureAlertsStore, listAlerts } from "./alerts-store";
+import { formatVolumeCsv } from "../shared/volume-format";
 import { authenticatedUser, json, type AuthEnvironment } from "./auth";
 import { ensureFuelHistoryStore } from "./fuel-history-store";
 import { ensureManagedEntityStore } from "./managed-entities-store";
 import { audit, parsePermissions, type D1DatabaseLike } from "./user-store";
+import { machineFuelHistory } from "./machine-fuel-history";
+import { voltageSnapshot, voltageRows, textStream } from "./voltage-history";
 
 type ExportEnvironment = AuthEnvironment & {
   APP_DEMO_SEED?: string;
@@ -20,11 +23,28 @@ export async function handleDataExportRequest(request: Request, env: ExportEnvir
   if (!dataset) return json({ error: "Conjunto de datos no válido." }, 400);
 
   const db = env.DB;
+  const voltage = dataset === "all" || dataset === "voltages" ? await voltageSnapshot(db) : { lastId: 0, total: 0 };
+  if (dataset === "voltages") {
+    await audit(db, "operational_data_exported", actor.id, actor.id, { dataset, counts: { voltajesHistoricos: voltage.total } });
+    async function* csv() {
+      yield `\uFEFF${voltageColumns.map(([, label]) => csvCell(label)).join(",")}\r\n`;
+      for await (const row of voltageRows(db, voltage.lastId)) yield voltageColumns.map(([key]) => csvCell(row[key])).join(",") + "\r\n";
+    }
+    return new Response(textStream(csv()), { headers: {
+      "Content-Type": "text/csv; charset=utf-8",
+      "Content-Disposition": `attachment; filename="voltajes-historicos-${dateInChile(new Date().toISOString())}.csv"`,
+      "Cache-Control": "private, no-store, max-age=0", "X-Content-Type-Options": "nosniff",
+    } });
+  }
   await Promise.all([
     ensureManagedEntityStore(db, runtimeValue(env, "APP_DEMO_SEED") === "true"),
     ensureFuelHistoryStore(db, runtimeValue(env, "FUEL_HISTORY_DEMO_SEED") === "true"),
     ensureAlertsStore(db),
   ]);
+
+  const machineHistory = dataset === "all" || dataset === "machine-liters" ? await machineFuelHistory(db) : { machines: [], unassigned: null };
+  const machineLiters = [...machineHistory.machines, ...(machineHistory.unassigned ? [machineHistory.unassigned] : [])]
+    .map(machine => ({ ...machine, averageLiters: machine.liters / machine.loads }));
 
   const [levels, transactions, receiptReviews, users, operators, credentialEnrollments, equipment, associations, alerts] = await Promise.all([
     rows(db, `SELECT id,occurred_at AS occurredAt,level_liters AS levelLiters,source,created_at AS createdAt
@@ -97,6 +117,8 @@ export async function handleDataExportRequest(request: Request, env: ExportEnvir
   const normalizedAssociations = associations.map((item) => ({ ...item, active: item.active === 1 }));
   const generatedAt = new Date().toISOString();
   const counts = {
+    voltajesHistoricos: voltage.total,
+    litrosPorMaquina: machineLiters.length,
     nivelesHistoricos: levels.length,
     transacciones: normalizedTransactions.length,
     revisionesRecepcion: receiptReviews.length,
@@ -109,7 +131,7 @@ export async function handleDataExportRequest(request: Request, env: ExportEnvir
   };
   const payload = {
     metadatos: {
-      schemaVersion: 2,
+      schemaVersion: 3,
       generatedAt,
       timeZone: "America/Santiago",
       location: "Fundo Santa Isabel",
@@ -125,6 +147,7 @@ export async function handleDataExportRequest(request: Request, env: ExportEnvir
       counts,
     },
     nivelesHistoricos: levels,
+    litrosPorMaquina: machineLiters,
     transacciones: normalizedTransactions,
     revisionesRecepcion: receiptReviews,
     usuarios: normalizedUsers,
@@ -147,6 +170,7 @@ export async function handleDataExportRequest(request: Request, env: ExportEnvir
       associations: normalizedAssociations,
       credentials: normalizedCredentials,
       alerts,
+      "machine-liters": machineLiters,
     });
     return new Response(`\uFEFF${file.content}\n`, {
       status: 200,
@@ -158,7 +182,16 @@ export async function handleDataExportRequest(request: Request, env: ExportEnvir
       },
     });
   }
-  return new Response(`${JSON.stringify(payload, null, 2)}\n`, {
+  async function* completeJson() {
+    yield JSON.stringify(payload, null, 2).slice(0, -1) + ',"voltajesHistoricos":[';
+    let first = true;
+    for await (const row of voltageRows(db, voltage.lastId)) {
+      yield (first ? "" : ",") + JSON.stringify(row);
+      first = false;
+    }
+    yield "]}\n";
+  }
+  return new Response(textStream(completeJson()), {
     status: 200,
     headers: {
       "Content-Type": "application/json; charset=utf-8",
@@ -169,17 +202,18 @@ export async function handleDataExportRequest(request: Request, env: ExportEnvir
   });
 }
 
-type ExportDataset = "all" | "levels" | "transactions" | "users" | "operators" | "equipment" | "associations" | "credentials" | "alerts";
+type ExportDataset = "all" | "voltages" | "machine-liters" | "levels" | "transactions" | "users" | "operators" | "equipment" | "associations" | "credentials" | "alerts";
 
 function exportDataset(value: string | null): ExportDataset | null {
   const dataset = value ?? "all";
-  return ["all", "levels", "transactions", "users", "operators", "equipment", "associations", "credentials", "alerts"].includes(dataset)
+  return ["all", "voltages", "machine-liters", "levels", "transactions", "users", "operators", "equipment", "associations", "credentials", "alerts"].includes(dataset)
     ? dataset as ExportDataset
     : null;
 }
 
-function exportCsv(dataset: Exclude<ExportDataset, "all">, collections: Record<Exclude<ExportDataset, "all">, Array<Record<string, unknown>>>) {
-  const definitions: Record<Exclude<ExportDataset, "all">, { name: string; columns: Array<[string, string]> }> = {
+function exportCsv(dataset: Exclude<ExportDataset, "all" | "voltages">, collections: Record<Exclude<ExportDataset, "all" | "voltages">, Array<Record<string, unknown>>>) {
+  const definitions: Record<Exclude<ExportDataset, "all" | "voltages">, { name: string; columns: Array<[string, string]> }> = {
+    "machine-liters": { name: "litros-por-maquina", columns: [["equipmentId", "ID equipo"], ["name", "Equipo"], ["kind", "Tipo"], ["liters", "Litros surtidos"], ["loads", "Cargas"], ["averageLiters", "Promedio L/carga"], ["lastAt", "Última carga (UTC)"]] },
     levels: { name: "niveles-historicos", columns: [["id", "ID"], ["occurredAt", "Fecha"], ["levelLiters", "Nivel litros"], ["source", "Fuente"], ["createdAt", "Registrado"]] },
     transactions: { name: "transacciones", columns: [["id", "ID"], ["legacyId", "ID anterior"], ["manualModeSessionId", "Sesión manual"], ["type", "Tipo"], ["classification", "Clasificación"], ["occurredAt", "Fecha"], ["liters", "Litros conciliados"], ["originalLiters", "Litros detectados"], ["openingLevelLiters", "Nivel inicial"], ["closingLevelLiters", "Nivel final"], ["operatorId", "ID operador"], ["operatorName", "Operador"], ["equipmentId", "ID equipo"], ["equipmentName", "Equipo"], ["source", "Fuente"], ["reference", "Referencia interna"], ["documentReference", "Referencia documental"], ["detail", "Detalle"], ["status", "Estado detector"], ["reviewStatus", "Estado conciliación"], ["reviewedByName", "Revisado por"], ["reviewedAt", "Fecha revisión"], ["reviewNote", "Motivo revisión"]] },
     users: { name: "usuarios-enrolados", columns: [["id", "ID"], ["name", "Nombre"], ["role", "Rol"], ["permissions", "Permisos"], ["active", "Activo"], ["mustChangePassword", "Cambio clave pendiente"], ["isMaster", "Usuario maestro"], ["createdAt", "Creado"], ["lastLoginAt", "Último acceso"]] },
@@ -187,18 +221,22 @@ function exportCsv(dataset: Exclude<ExportDataset, "all">, collections: Record<E
     equipment: { name: "equipos", columns: [["id", "ID"], ["name", "Nombre"], ["kind", "Tipo"], ["condition", "Condición"], ["module", "Módulo"], ["siteId", "Fundo"], ["active", "Activo"], ["expiry", "Vigencia"], ["archivedAt", "Archivado"], ["createdAt", "Creado"], ["updatedAt", "Actualizado"]] },
     associations: { name: "vinculaciones-operador-equipo", columns: [["id", "ID"], ["operatorId", "ID operador"], ["operatorName", "Operador"], ["equipmentId", "ID equipo"], ["equipmentName", "Equipo"], ["equipmentKind", "Tipo equipo"], ["active", "Activa"], ["since", "Desde"], ["archivedAt", "Archivada"], ["createdAt", "Creada"], ["updatedAt", "Actualizada"]] },
     credentials: { name: "enrolamientos-rfid", columns: [["operatorId", "ID operador"], ["credentialActive", "Credencial activa"], ["credentialIsMaster", "Credencial maestra"], ["createdAt", "Creado"], ["updatedAt", "Actualizado"]] },
-    alerts: { name: "alertas", columns: [["id", "ID"], ["severity", "Severidad"], ["priority", "Prioridad"], ["status", "Estado"], ["title", "Título"], ["detail", "Detalle"], ["time", "Fecha"], ["acknowledged", "Resuelta"]] },
+    alerts: { name: "alertas", columns: [["id", "ID"], ["severity", "Severidad"], ["priority", "Prioridad"], ["status", "Estado"], ["title", "Título"], ["detail", "Detalle"], ["time", "Fecha"], ["acknowledged", "Resuelta"], ["powerIncidentType", "Clasificación eléctrica"]] },
   };
   const definition = definitions[dataset];
   const header = definition.columns.map(([, label]) => csvCell(label)).join(",");
-  const body = collections[dataset].map((row) => definition.columns.map(([key]) => csvCell(row[key])).join(","));
+  const volumeColumns = new Set(["levelLiters", "liters", "averageLiters", "originalLiters", "openingLevelLiters", "closingLevelLiters"]);
+  const body = collections[dataset].map((row) => definition.columns.map(([key]) => csvCell(volumeColumns.has(key) ? formatVolumeCsv(row[key] as number | null) : row[key])).join(","));
   return { name: definition.name, content: [header, ...body].join("\r\n") };
 }
 
 function csvCell(value: unknown) {
   const text = Array.isArray(value) ? value.join(" | ") : value === null || value === undefined ? "" : String(value);
-  return `"${text.replaceAll('"', '""')}"`;
+  const safe = typeof value === "string" ? text.replace(/^[\s]*[=+@-]/u, "'$&") : text;
+  return `"${safe.replaceAll('"', '""')}"`;
 }
+
+const voltageColumns = [["id", "ID"], ["siteId", "Fundo"], ["occurredAt", "Fecha (UTC)"], ["volts", "Voltaje (V)"], ["rawAdc", "ADC"], ["quality", "Estado"], ["source", "Fuente"], ["calibrationId", "Calibración"], ["telemetrySessionId", "Sesión"], ["createdAt", "Registrado (UTC)"]];
 
 async function rows(db: D1DatabaseLike, query: string) {
   return (await db.prepare(query).all<Record<string, unknown>>()).results;

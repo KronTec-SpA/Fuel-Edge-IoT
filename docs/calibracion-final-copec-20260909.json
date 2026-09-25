@@ -1,0 +1,60 @@
+{
+  "id": "copec-field-final-20260909",
+  "captureAt": "2026-09-09T17:24:16.695010+00:00",
+  "overflowMm": 1220,
+  "capacityLiters": 2662,
+  "initialMm": 440,
+  "initialLiters": 869,
+  "deliveredLiters": 1793,
+  "initialVolts": 2.8547008547008548,
+  "fullVolts": 8.129426129426129,
+  "fullAdc": 3329,
+  "voltageSource": "median of acceptedPercent in captured ten-minute trace; pressure peaks excluded",
+  "heightAtZeroPercentMm": 17.86111111111103,
+  "heightAtFullPercentMm": 1467.0361111111115,
+  "receiptId": "FR-MANUAL-local-78ad5be65c05af17bf724c66112a180f",
+  "documentReference": "45890930",
+  "supersedesFullHeightMm": 1230,
+  "points": [
+    [
+      440,
+      869
+    ],
+    [
+      510,
+      1069
+    ],
+    [
+      580,
+      1269
+    ],
+    [
+      660,
+      1469
+    ],
+    [
+      730,
+      1669
+    ],
+    [
+      810,
+      1869
+    ],
+    [
+      890,
+      2069
+    ],
+    [
+      970,
+      2269
+    ],
+    [
+      1070,
+      2469
+    ],
+    [
+      1220,
+      2662
+    ]
+  ]
+}

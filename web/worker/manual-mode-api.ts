@@ -70,7 +70,7 @@ export async function handleManualModeRequest(request: Request, env: ManualModeE
       }
       if (purpose === "adoption_assisted") {
         const adoption = await technologyAdoptionSettings(env.DB, siteId);
-        if (adoption.stage !== "assisted") {
+        if (adoption.programStatus !== "active" || adoption.stage !== "assisted") {
           return json({ error: "Las sesiones asistidas sólo están disponibles en la etapa Aprendizaje asistido." }, 409);
         }
       }

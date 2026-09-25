@@ -1,0 +1,489 @@
+{
+  "source": "PLC, lecturas publicadas; sin despachos K24 registrados en la ventana",
+  "capturedAt": "2026-09-08T18:16:45.805797+00:00",
+  "snapshotSha256": "31e27130b7f152992fb74217d3a12f3da38fec4654bb7983d8630b36d3f00159",
+  "from": "2026-08-26T06:00:00.000Z",
+  "to": "2026-08-26T08:00:00.000Z",
+  "readings": [
+    {
+      "occurredAt": "2026-08-26T06:00:35.116Z",
+      "levelLiters": 1026.893
+    },
+    {
+      "occurredAt": "2026-08-26T06:01:35.281Z",
+      "levelLiters": 1026.58
+    },
+    {
+      "occurredAt": "2026-08-26T06:02:35.449Z",
+      "levelLiters": 1026.267
+    },
+    {
+      "occurredAt": "2026-08-26T06:03:35.619Z",
+      "levelLiters": 1026.267
+    },
+    {
+      "occurredAt": "2026-08-26T06:04:35.790Z",
+      "levelLiters": 1026.58
+    },
+    {
+      "occurredAt": "2026-08-26T06:05:35.950Z",
+      "levelLiters": 1026.893
+    },
+    {
+      "occurredAt": "2026-08-26T06:06:36.110Z",
+      "levelLiters": 1026.267
+    },
+    {
+      "occurredAt": "2026-08-26T06:07:36.269Z",
+      "levelLiters": 1026.893
+    },
+    {
+      "occurredAt": "2026-08-26T06:08:36.422Z",
+      "levelLiters": 1026.267
+    },
+    {
+      "occurredAt": "2026-08-26T06:09:36.582Z",
+      "levelLiters": 1026.267
+    },
+    {
+      "occurredAt": "2026-08-26T06:10:36.743Z",
+      "levelLiters": 1026.267
+    },
+    {
+      "occurredAt": "2026-08-26T06:11:36.899Z",
+      "levelLiters": 1026.58
+    },
+    {
+      "occurredAt": "2026-08-26T06:12:37.050Z",
+      "levelLiters": 1026.267
+    },
+    {
+      "occurredAt": "2026-08-26T06:13:37.152Z",
+      "levelLiters": 1026.267
+    },
+    {
+      "occurredAt": "2026-08-26T06:14:37.352Z",
+      "levelLiters": 1026.267
+    },
+    {
+      "occurredAt": "2026-08-26T06:15:37.518Z",
+      "levelLiters": 1026.267
+    },
+    {
+      "occurredAt": "2026-08-26T06:16:37.735Z",
+      "levelLiters": 1026.267
+    },
+    {
+      "occurredAt": "2026-08-26T06:17:37.965Z",
+      "levelLiters": 1026.893
+    },
+    {
+      "occurredAt": "2026-08-26T06:18:38.120Z",
+      "levelLiters": 1026.267
+    },
+    {
+      "occurredAt": "2026-08-26T06:19:38.288Z",
+      "levelLiters": 1026.267
+    },
+    {
+      "occurredAt": "2026-08-26T06:20:38.462Z",
+      "levelLiters": 1026.893
+    },
+    {
+      "occurredAt": "2026-08-26T06:21:38.625Z",
+      "levelLiters": 1026.893
+    },
+    {
+      "occurredAt": "2026-08-26T06:22:38.791Z",
+      "levelLiters": 1026.267
+    },
+    {
+      "occurredAt": "2026-08-26T06:23:38.955Z",
+      "levelLiters": 1026.893
+    },
+    {
+      "occurredAt": "2026-08-26T06:24:39.114Z",
+      "levelLiters": 1026.267
+    },
+    {
+      "occurredAt": "2026-08-26T06:25:39.256Z",
+      "levelLiters": 1026.267
+    },
+    {
+      "occurredAt": "2026-08-26T06:26:39.404Z",
+      "levelLiters": 1026.267
+    },
+    {
+      "occurredAt": "2026-08-26T06:27:39.563Z",
+      "levelLiters": 1026.267
+    },
+    {
+      "occurredAt": "2026-08-26T06:28:39.717Z",
+      "levelLiters": 1026.267
+    },
+    {
+      "occurredAt": "2026-08-26T06:29:39.883Z",
+      "levelLiters": 1026.267
+    },
+    {
+      "occurredAt": "2026-08-26T06:30:40.032Z",
+      "levelLiters": 1026.267
+    },
+    {
+      "occurredAt": "2026-08-26T06:31:40.206Z",
+      "levelLiters": 1025.641
+    },
+    {
+      "occurredAt": "2026-08-26T06:32:40.370Z",
+      "levelLiters": 1025.641
+    },
+    {
+      "occurredAt": "2026-08-26T06:33:40.525Z",
+      "levelLiters": 1025.641
+    },
+    {
+      "occurredAt": "2026-08-26T06:34:40.680Z",
+      "levelLiters": 1025.641
+    },
+    {
+      "occurredAt": "2026-08-26T06:35:40.868Z",
+      "levelLiters": 1025.641
+    },
+    {
+      "occurredAt": "2026-08-26T06:36:41.030Z",
+      "levelLiters": 1025.641
+    },
+    {
+      "occurredAt": "2026-08-26T06:37:41.176Z",
+      "levelLiters": 1025.641
+    },
+    {
+      "occurredAt": "2026-08-26T06:38:41.336Z",
+      "levelLiters": 1025.641
+    },
+    {
+      "occurredAt": "2026-08-26T06:39:41.499Z",
+      "levelLiters": 1025.641
+    },
+    {
+      "occurredAt": "2026-08-26T06:40:41.663Z",
+      "levelLiters": 1025.641
+    },
+    {
+      "occurredAt": "2026-08-26T06:41:41.824Z",
+      "levelLiters": 1025.641
+    },
+    {
+      "occurredAt": "2026-08-26T06:42:41.990Z",
+      "levelLiters": 1025.641
+    },
+    {
+      "occurredAt": "2026-08-26T06:43:42.139Z",
+      "levelLiters": 1025.641
+    },
+    {
+      "occurredAt": "2026-08-26T06:44:42.340Z",
+      "levelLiters": 1025.641
+    },
+    {
+      "occurredAt": "2026-08-26T06:45:42.489Z",
+      "levelLiters": 1025.641
+    },
+    {
+      "occurredAt": "2026-08-26T06:46:42.638Z",
+      "levelLiters": 1025.641
+    },
+    {
+      "occurredAt": "2026-08-26T06:47:42.792Z",
+      "levelLiters": 1025.641
+    },
+    {
+      "occurredAt": "2026-08-26T06:48:42.974Z",
+      "levelLiters": 1025.641
+    },
+    {
+      "occurredAt": "2026-08-26T06:49:43.131Z",
+      "levelLiters": 1025.641
+    },
+    {
+      "occurredAt": "2026-08-26T06:50:43.309Z",
+      "levelLiters": 1025.641
+    },
+    {
+      "occurredAt": "2026-08-26T06:51:43.495Z",
+      "levelLiters": 1025.641
+    },
+    {
+      "occurredAt": "2026-08-26T06:52:43.744Z",
+      "levelLiters": 1025.641
+    },
+    {
+      "occurredAt": "2026-08-26T06:53:43.923Z",
+      "levelLiters": 1025.641
+    },
+    {
+      "occurredAt": "2026-08-26T06:54:44.082Z",
+      "levelLiters": 1025.641
+    },
+    {
+      "occurredAt": "2026-08-26T06:55:44.250Z",
+      "levelLiters": 1025.641
+    },
+    {
+      "occurredAt": "2026-08-26T06:56:44.476Z",
+      "levelLiters": 1025.641
+    },
+    {
+      "occurredAt": "2026-08-26T06:57:44.642Z",
+      "levelLiters": 1025.641
+    },
+    {
+      "occurredAt": "2026-08-26T06:58:44.787Z",
+      "levelLiters": 1025.641
+    },
+    {
+      "occurredAt": "2026-08-26T06:59:44.964Z",
+      "levelLiters": 1025.641
+    },
+    {
+      "occurredAt": "2026-08-26T07:00:45.113Z",
+      "levelLiters": 1025.641
+    },
+    {
+      "occurredAt": "2026-08-26T07:01:45.295Z",
+      "levelLiters": 1025.641
+    },
+    {
+      "occurredAt": "2026-08-26T07:02:45.499Z",
+      "levelLiters": 1025.641
+    },
+    {
+      "occurredAt": "2026-08-26T07:03:45.680Z",
+      "levelLiters": 1025.641
+    },
+    {
+      "occurredAt": "2026-08-26T07:04:45.859Z",
+      "levelLiters": 1025.641
+    },
+    {
+      "occurredAt": "2026-08-26T07:05:46.036Z",
+      "levelLiters": 1025.641
+    },
+    {
+      "occurredAt": "2026-08-26T07:06:46.183Z",
+      "levelLiters": 1025.641
+    },
+    {
+      "occurredAt": "2026-08-26T07:07:46.411Z",
+      "levelLiters": 1025.641
+    },
+    {
+      "occurredAt": "2026-08-26T07:08:46.563Z",
+      "levelLiters": 1025.641
+    },
+    {
+      "occurredAt": "2026-08-26T07:09:46.725Z",
+      "levelLiters": 1025.641
+    },
+    {
+      "occurredAt": "2026-08-26T07:10:46.883Z",
+      "levelLiters": 1025.641
+    },
+    {
+      "occurredAt": "2026-08-26T07:11:47.062Z",
+      "levelLiters": 1025.641
+    },
+    {
+      "occurredAt": "2026-08-26T07:12:47.189Z",
+      "levelLiters": 1025.641
+    },
+    {
+      "occurredAt": "2026-08-26T07:13:47.307Z",
+      "levelLiters": 1025.641
+    },
+    {
+      "occurredAt": "2026-08-26T07:14:47.410Z",
+      "levelLiters": 1025.641
+    },
+    {
+      "occurredAt": "2026-08-26T07:15:47.643Z",
+      "levelLiters": 1026.267
+    },
+    {
+      "occurredAt": "2026-08-26T07:16:47.810Z",
+      "levelLiters": 1025.641
+    },
+    {
+      "occurredAt": "2026-08-26T07:17:47.977Z",
+      "levelLiters": 1025.641
+    },
+    {
+      "occurredAt": "2026-08-26T07:18:48.138Z",
+      "levelLiters": 1025.641
+    },
+    {
+      "occurredAt": "2026-08-26T07:19:48.297Z",
+      "levelLiters": 1025.641
+    },
+    {
+      "occurredAt": "2026-08-26T07:20:48.453Z",
+      "levelLiters": 1025.641
+    },
+    {
+      "occurredAt": "2026-08-26T07:21:48.622Z",
+      "levelLiters": 1025.641
+    },
+    {
+      "occurredAt": "2026-08-26T07:22:48.800Z",
+      "levelLiters": 1025.641
+    },
+    {
+      "occurredAt": "2026-08-26T07:23:48.950Z",
+      "levelLiters": 1025.641
+    },
+    {
+      "occurredAt": "2026-08-26T07:24:49.136Z",
+      "levelLiters": 1025.641
+    },
+    {
+      "occurredAt": "2026-08-26T07:25:49.358Z",
+      "levelLiters": 1025.641
+    },
+    {
+      "occurredAt": "2026-08-26T07:26:49.522Z",
+      "levelLiters": 1025.641
+    },
+    {
+      "occurredAt": "2026-08-26T07:27:49.664Z",
+      "levelLiters": 1025.641
+    },
+    {
+      "occurredAt": "2026-08-26T07:28:49.828Z",
+      "levelLiters": 1025.641
+    },
+    {
+      "occurredAt": "2026-08-26T07:29:49.982Z",
+      "levelLiters": 1025.641
+    },
+    {
+      "occurredAt": "2026-08-26T07:30:50.147Z",
+      "levelLiters": 1025.641
+    },
+    {
+      "occurredAt": "2026-08-26T07:31:50.299Z",
+      "levelLiters": 1025.641
+    },
+    {
+      "occurredAt": "2026-08-26T07:32:50.469Z",
+      "levelLiters": 1026.267
+    },
+    {
+      "occurredAt": "2026-08-26T07:33:50.642Z",
+      "levelLiters": 1025.641
+    },
+    {
+      "occurredAt": "2026-08-26T07:34:50.863Z",
+      "levelLiters": 1025.641
+    },
+    {
+      "occurredAt": "2026-08-26T07:35:51.084Z",
+      "levelLiters": 1025.641
+    },
+    {
+      "occurredAt": "2026-08-26T07:36:51.288Z",
+      "levelLiters": 1025.641
+    },
+    {
+      "occurredAt": "2026-08-26T07:37:51.438Z",
+      "levelLiters": 1025.641
+    },
+    {
+      "occurredAt": "2026-08-26T07:38:51.597Z",
+      "levelLiters": 1025.641
+    },
+    {
+      "occurredAt": "2026-08-26T07:39:51.751Z",
+      "levelLiters": 1025.641
+    },
+    {
+      "occurredAt": "2026-08-26T07:40:51.897Z",
+      "levelLiters": 1026.267
+    },
+    {
+      "occurredAt": "2026-08-26T07:41:52.108Z",
+      "levelLiters": 1025.641
+    },
+    {
+      "occurredAt": "2026-08-26T07:42:52.264Z",
+      "levelLiters": 1025.641
+    },
+    {
+      "occurredAt": "2026-08-26T07:43:52.482Z",
+      "levelLiters": 1026.267
+    },
+    {
+      "occurredAt": "2026-08-26T07:44:52.645Z",
+      "levelLiters": 1026.267
+    },
+    {
+      "occurredAt": "2026-08-26T07:45:52.805Z",
+      "levelLiters": 1025.641
+    },
+    {
+      "occurredAt": "2026-08-26T07:46:52.954Z",
+      "levelLiters": 1025.641
+    },
+    {
+      "occurredAt": "2026-08-26T07:47:53.108Z",
+      "levelLiters": 1025.641
+    },
+    {
+      "occurredAt": "2026-08-26T07:48:53.269Z",
+      "levelLiters": 1025.641
+    },
+    {
+      "occurredAt": "2026-08-26T07:49:53.422Z",
+      "levelLiters": 1025.954
+    },
+    {
+      "occurredAt": "2026-08-26T07:50:53.597Z",
+      "levelLiters": 1025.641
+    },
+    {
+      "occurredAt": "2026-08-26T07:51:53.740Z",
+      "levelLiters": 1025.641
+    },
+    {
+      "occurredAt": "2026-08-26T07:52:53.916Z",
+      "levelLiters": 1025.641
+    },
+    {
+      "occurredAt": "2026-08-26T07:53:54.067Z",
+      "levelLiters": 1025.641
+    },
+    {
+      "occurredAt": "2026-08-26T07:54:54.239Z",
+      "levelLiters": 1025.641
+    },
+    {
+      "occurredAt": "2026-08-26T07:55:54.446Z",
+      "levelLiters": 1025.641
+    },
+    {
+      "occurredAt": "2026-08-26T07:56:54.613Z",
+      "levelLiters": 1025.641
+    },
+    {
+      "occurredAt": "2026-08-26T07:57:54.773Z",
+      "levelLiters": 1025.641
+    },
+    {
+      "occurredAt": "2026-08-26T07:58:54.942Z",
+      "levelLiters": 1025.641
+    },
+    {
+      "occurredAt": "2026-08-26T07:59:55.112Z",
+      "levelLiters": 1025.641
+    }
+  ]
+}

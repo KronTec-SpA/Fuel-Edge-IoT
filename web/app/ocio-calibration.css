@@ -1,0 +1,32 @@
+.ocio-calibration-panel { min-width: 0; padding: 24px; }
+.ocio-calibration-heading { display: flex; align-items: flex-start; justify-content: space-between; flex-wrap: wrap; gap: 16px; }
+.ocio-calibration-heading > div { flex: 1 1 260px; min-width: 0; }
+.ocio-calibration-heading h2 { margin: 5px 0 8px; font-size: 20px; line-height: 1.3; }
+.ocio-calibration-heading p, .ocio-calibration-note { margin: 0; color: var(--muted); font-size: var(--font-ui); line-height: 1.6; }
+.ocio-calibration-status { display: inline-flex; flex: 0 1 auto; max-width: 100%; padding: 7px 10px; border-radius: 7px; font-size: var(--font-ui); font-weight: 700; line-height: 1.5; overflow-wrap: anywhere; background: #fff5df; color: #765516; border: 1px solid #ebd6a8; }
+.ocio-calibration-status.ok { background: var(--success-bg); color: #185f47; border-color: #cae7da; }
+.ocio-calibration-status.waiting { background: #edf4fa; color: #275677; border-color: #c7dbe8; }
+.ocio-calibration-values { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 20px; padding: 22px 0; margin: 20px 0; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); }
+.ocio-calibration-values > div { display: flex; flex-direction: column; gap: 7px; min-width: 0; overflow-wrap: anywhere; }
+.ocio-calibration-values span { color: var(--muted); font-size: var(--font-ui); }
+.ocio-calibration-values strong { color: var(--ink); font-size: 19px; line-height: 1.4; }
+.ocio-calibration-values small { color: var(--muted); font-size: var(--font-ui); line-height: 1.5; }
+.ocio-calibration-values .overdue strong, .ocio-calibration-values .overdue small { color: #965c14; }
+.ocio-calibration-controls { display: flex; align-items: flex-end; justify-content: space-between; gap: 16px; flex-wrap: wrap; margin-bottom: 16px; }
+.ocio-calibration-controls label { display: flex; flex-direction: column; gap: 8px; font-size: var(--font-ui); color: var(--ink); min-width: 0; }
+.ocio-calibration-controls label > div { display: flex; align-items: center; gap: 8px; }
+.ocio-calibration-controls input { width: 100px; min-height: 42px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 7px; color: var(--ink); background: var(--surface); font: inherit; }
+.ocio-calibration-actions { display: flex; flex-wrap: wrap; gap: 10px; min-width: 0; }
+.ocio-calibration-actions button { min-height: 42px; font-size: var(--font-ui); white-space: normal; }
+.ocio-calibration-history { margin-top: 18px; border-top: 1px solid var(--line); padding-top: 16px; font-size: var(--font-ui); }
+.ocio-calibration-history summary { cursor: pointer; color: var(--ink); font-weight: 600; }
+.ocio-calibration-history ul { margin: 12px 0 0; padding: 0; list-style: none; }
+.ocio-calibration-history li { display: flex; justify-content: space-between; flex-wrap: wrap; gap: 10px; padding: 12px 0; border-bottom: 1px solid var(--line); }
+.ocio-calibration-history li > span { display: flex; flex-direction: column; gap: 5px; }
+.ocio-calibration-history small, .ocio-calibration-history time { color: var(--muted); font-size: var(--font-ui); }
+@media (max-width: 600px) {
+  .ocio-calibration-panel { padding: 18px; }
+  .ocio-calibration-values { grid-template-columns: minmax(0,1fr); gap: 22px; }
+  .ocio-calibration-controls, .ocio-calibration-actions { width: 100%; }
+  .ocio-calibration-actions button { flex: 1 1 130px; }
+}

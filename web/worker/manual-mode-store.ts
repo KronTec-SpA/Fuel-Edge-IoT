@@ -73,10 +73,19 @@ export async function createManualModeSchedule(
   if (open) throw new ManualModeConflict("Ya existe un período de modo manual programado o activo.");
   const id = `${purpose === "adoption_assisted" ? "adoption-session" : "manual-mode"}-${crypto.randomUUID()}`;
   try {
-    await db.prepare(`INSERT INTO manual_mode_schedules(
+    const statement = `INSERT INTO manual_mode_schedules(
         id,actor_user_id,actor_role,site_id,purpose,status,start_at,end_at
-      ) VALUES (?,?,?,?,?,'scheduled',?,?)`)
-      .bind(id, actor.id, actor.role, siteId, purpose, start.toISOString(), end.toISOString()).run();
+      ) SELECT ?,?,?,?,?,'scheduled',?,?`;
+    const values = [id, actor.id, actor.role, siteId, purpose, start.toISOString(), end.toISOString()];
+    // Check again in the INSERT: deactivation may have committed after the
+    // request's initial validation but before creation of the window.
+    const result = purpose === "adoption_assisted"
+      ? await db.prepare(`${statement} WHERE EXISTS (SELECT 1 FROM technology_adoption_settings
+          WHERE site_id=? AND program_status='active' AND stage='assisted')`).bind(...values, siteId).run()
+      : await db.prepare(statement).bind(...values).run();
+    if ((result as { meta?: { changes?: number } }).meta?.changes === 0) {
+      throw new ManualModeConflict("La adopción ya no admite sesiones asistidas. Actualiza la pantalla.");
+    }
   } catch (error) {
     if (error instanceof Error && /unique|constraint/iu.test(error.message)) {
       throw new ManualModeConflict("Ya existe un período de modo manual programado o activo.");

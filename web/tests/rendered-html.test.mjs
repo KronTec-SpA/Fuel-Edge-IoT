@@ -396,7 +396,7 @@ test("provides a persistent fuel history with automatic receipt detection", asyn
   assert.match(store, /RECEIPT_THRESHOLD_LITERS = 100/i);
   assert.match(store, /HIGH_CONFIDENCE_RECEIPT_LITERS = 120/i);
   assert.match(store, /riseFromBaseline >= RECEIPT_THRESHOLD_LITERS/i);
-  assert.match(store, /STABLE_PLATEAU_TOLERANCE_PERCENT = 2/i);
+  assert.match(store, /STABLE_PLATEAU_TOLERANCE_LITERS = 50/i);
   assert.match(store, /CONFIRMATION_MINUTES = 10/i);
   assert.match(store, /RECEIPT_CONTINUATION_MINUTES = 90/i);
   assert.match(store, /warmup_started_at/i);
@@ -530,7 +530,7 @@ test("requires human approval, preserves sensor evidence and supports manual rec
     assert.equal(duplicateDocument.status, 400);
     assert.match((await duplicateDocument.json()).error, /referencia documental ya está asociada/i);
 
-    const afterReview = await worker.fetch(new Request(`http://localhost/api/fuel-history?from=${localDay}&to=${localDay}`, {
+    const afterReview = await worker.fetch(new Request(`http://localhost/api/fuel-history?from=${dateInputInTimeZone(firstAt)}&to=${localDay}`, {
       headers: { cookie },
     }), env, executionContext);
     const afterBody = await afterReview.json();
@@ -1201,8 +1201,10 @@ test("reports disabled or unavailable field hardware without false healthy state
     readFile(new URL("../worker/fuel-history-store.ts", import.meta.url), "utf8"),
   ]);
   assert.match(page, /edge\.nfcReady && edge\.k24Enabled && edge\.k24Healthy/i);
-  assert.match(page, /Pendiente de conexión/i);
-  assert.match(page, /Lector RFID/i);
+  const health = await readFile(new URL("../app/system-workspace.tsx", import.meta.url), "utf8");
+  assert.match(health, /No habilitado/i);
+  assert.match(health, /Sin confirmar/i);
+  assert.match(health, /Lector de credenciales/i);
   assert.match(store, /nfc_ready AS nfcReady/i);
   assert.match(store, /k24_enabled AS k24Enabled/i);
   assert.match(store, /tank_level_enabled AS tankLevelEnabled/i);
@@ -1234,7 +1236,6 @@ test("enrolls a factory-trusted MIM through the local Raspberry Wi-Fi link", asy
   assert.match(styles, /\.overview-scan-button\.updated/i);
   assert.doesNotMatch(styles, /\.scan-refresh-icon\.spinning/i);
   assert.match(page, /startNetworkScan/i);
-  assert.match(page, /se conecta automáticamente/i);
   assert.match(page, /MIM DETECTADO Y VERIFICADO/i);
   assert.match(page, /pendingCandidates = candidates\.filter\(\(candidate\) => candidate\.status !== "enrolled"\)/i);
   assert.match(page, /señal débil/i);
@@ -2106,12 +2107,12 @@ test("identifies an RFID credential without modifying its operator", async () =>
   }
 });
 
-test("keeps system calibration aligned with the health column", async () => {
+test("groups system calibration separately from status and preserves its permissions", async () => {
   const [page, styles] = await Promise.all([
     readFile(new URL("../app/page.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/globals.css", import.meta.url), "utf8"),
   ]);
-  assert.match(page, /className="system-primary"[\s\S]*?<BluetoothCalibration \/>/i);
+  assert.match(page, /id: "maintenance"[\s\S]*?canManage && <BluetoothCalibration \/>/i);
   assert.match(styles, /\.system-primary\s*\{[^}]*min-width:\s*0[^}]*flex-direction:\s*column/i);
   assert.match(styles, /\.bluetooth-calibration\s*\{[^}]*min-width:\s*0/i);
   assert.doesNotMatch(styles, /\.bluetooth-calibration\s*\{[^}]*grid-column:\s*1\s*\/\s*-1/i);
@@ -2509,11 +2510,11 @@ test("offers temporary fundo assignment, controlled equipment types and KronTec 
   assert.doesNotMatch(page, /label: "DATA"|title: "DATA"/);
   assert.match(page, /Revalidar módulo/i);
   assert.match(page, /© 2026 by KronTec/i);
-  assert.match(page, /V\.1\.9\.17/i);
+  assert.match(page, /V\.1\.9\.29/i);
   assert.doesNotMatch(page, /⚡/u);
-  assert.match(page, /system-power-tab[\s\S]*aria-hidden="true">SE</i);
+  assert.match(page, /id: "power", label: "Suministro eléctrico"/i);
   assert.match(page, /Control y trazabilidad de petróleo en línea/i);
-  assert.match(page, /Conectividad del validador · en vivo/i);
+  assert.doesNotMatch(page, /Conectividad del validador · en vivo|validator-live-state/i);
   assert.match(page, /window\.setInterval\(refresh, 5000\)/i);
   assert.match(page, /modal-form-error/i);
   assert.match(api, /authorization\/resolve/i);

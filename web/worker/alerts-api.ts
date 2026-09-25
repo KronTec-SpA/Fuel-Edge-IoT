@@ -3,6 +3,7 @@ import { edgeSensorSecret, sensorKeyMatches } from "./fuel-history-api";
 import { ensureAlertsStore, ingestEdgeAlert, isAlertPriority, isAlertStatus, listAlerts, recordAlertUpdate, reopenAlert } from "./alerts-store";
 import { readJsonBody, RequestBodyError } from "./request-body";
 import { parsePermissions } from "./user-store";
+import { isPowerIncidentType } from "../shared/power-supply";
 
 export async function handleAlertsRequest(request: Request, env: AuthEnvironment & { FUEL_SENSOR_INGEST_KEY?: string }): Promise<Response | null> {
   const url = new URL(request.url);
@@ -45,7 +46,7 @@ export async function handleAlertsRequest(request: Request, env: AuthEnvironment
   if (request.method === "POST" && match) {
     if (!sameOrigin(request)) return json({ error: "Solicitud no permitida." }, 403);
     if (!parsePermissions(actor.permissions).includes("manage_alerts")) return json({ error: "No tienes permiso para actualizar alertas." }, 403);
-    let body: { description?: unknown; status?: unknown; priority?: unknown };
+    let body: { description?: unknown; status?: unknown; priority?: unknown; powerIncidentType?: unknown };
     try { body = await readJsonBody(request, 4096); } catch (error) { return bodyError(error); }
     const description = typeof body.description === "string" ? body.description.trim() : "";
     if (description.length < 10 || description.length > 500) return json({ error: "Describe la acción realizada (10 a 500 caracteres)." }, 400);
@@ -53,8 +54,12 @@ export async function handleAlertsRequest(request: Request, env: AuthEnvironment
     const priority = body.priority === undefined ? null : body.priority;
     if (!isAlertStatus(status)) return json({ error: "Estado de alerta inválido." }, 400);
     if (priority !== null && !isAlertPriority(priority)) return json({ error: "Prioridad de alerta inválida." }, 400);
+    const powerIncidentType = body.powerIncidentType;
+    if (powerIncidentType !== undefined && powerIncidentType !== null && !isPowerIncidentType(powerIncidentType)) {
+      return json({ error: "Tipo de falla eléctrica inválido." }, 400);
+    }
     try {
-      await recordAlertUpdate(env.DB, decodeURIComponent(match[1]), actor.id, actor.name, description, status, priority);
+      await recordAlertUpdate(env.DB, decodeURIComponent(match[1]), actor.id, actor.name, description, status, priority, powerIncidentType);
       return json({ updated: true, resolved: status === "resolved" }, 200);
     } catch (error) {
       return json({ error: error instanceof Error ? error.message : "No fue posible actualizar la alerta." }, 409);

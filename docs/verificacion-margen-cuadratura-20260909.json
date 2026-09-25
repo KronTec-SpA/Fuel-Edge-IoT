@@ -1,0 +1,192 @@
+{
+  "verifiedAt": "2026-09-09T18:14:37.585390+00:00",
+  "deployment": {
+    "previous_web": "/opt/fuel-edge-web/releases/20260909-copec-final",
+    "previous_venv": "/opt/fuel-edge/releases/20260909-copec-final/venv",
+    "venv_was_symlink": true,
+    "release": "20260909-uncertainty",
+    "status": "active",
+    "staged_config_sha256": "3c3e9c4240adde748b686ec493e34ca06dd58d292c06b8cd55567901c37d13ff",
+    "activated_at": "2026-09-09T18:10:15.090545+00:00",
+    "completed_at": "2026-09-09T18:10:29.843154+00:00"
+  },
+  "policyId": "ocio-observed-plus-error-v1-density-8375",
+  "densityKgM3": 837.5,
+  "densityKgL": 0.8375,
+  "densitySource": "user_confirmed_field_measurement_20260909",
+  "edgeVersion": "0.3.24",
+  "webVersion": "1.9.27",
+  "certificatePreserved": true,
+  "activeEdge": "/opt/fuel-edge/releases/20260909-uncertainty/venv",
+  "activeWeb": "/opt/fuel-edge-web/releases/20260909-uncertainty",
+  "inventoryAnchorPreserved": true,
+  "movementHistoryPreserved": true,
+  "calibrationConfirmationId": "5b895415-207a-4adb-bd95-291b7a55f170",
+  "anchorId": "balance-b65b9e09-c186-4736-b4cb-9b913487bd1d",
+  "pulses": 4229,
+  "movements": 66,
+  "balanceSamplesBeforeApiCheck": 35,
+  "level": {
+    "capacity_liters": 2662.0,
+    "last_level_liters": 2662.0,
+    "last_reading_at": "2026-09-09T18:14:26.228Z"
+  },
+  "display": {
+    "liters": 2662,
+    "sourceAt": "2026-09-09T18:14:26.228Z",
+    "telemetrySessionId": "60f727bd-e7b4-4fa8-aec3-2a47eddac321",
+    "ranged": false
+  },
+  "balance": {
+    "sampleId": "balance-sample-0ef763ef-43fb-49e6-b311-674199925fac",
+    "occurredAt": "2026-09-09T18:14:26.228Z",
+    "initialLiters": 2662,
+    "receivedLiters": 0,
+    "meteredLiters": 0,
+    "expectedLiters": 2662,
+    "measuredLiters": 2662,
+    "differenceLiters": null,
+    "initialRange": {
+      "minLiters": 2662,
+      "maxLiters": 2662
+    },
+    "expectedRange": {
+      "minLiters": 2662,
+      "maxLiters": 2662
+    },
+    "measuredRange": {
+      "minLiters": 2662,
+      "maxLiters": 2662
+    },
+    "differenceRange": {
+      "minLiters": -67.888,
+      "maxLiters": 67.888
+    },
+    "observedDifferenceRange": {
+      "minLiters": 0,
+      "maxLiters": 0
+    },
+    "uncertainty": {
+      "policyId": "ocio-observed-plus-error-v1-density-8375",
+      "densityKgL": 0.8375,
+      "densityVerified": true,
+      "densitySource": "field_measurement_20260909",
+      "ocioErrorMm": 47.76119402985074,
+      "quantizationHalfStepMm": 5,
+      "k24ErrorLiters": 0,
+      "expectedBounds": {
+        "minLiters": 2594.113,
+        "maxLiters": 2662
+      },
+      "measuredBounds": {
+        "minLiters": 2594.113,
+        "maxLiters": 2662
+      },
+      "differenceBounds": {
+        "minLiters": -67.888,
+        "maxLiters": 67.888
+      }
+    },
+    "observedDifferenceLiters": 0,
+    "pendingReceipts": 0,
+    "status": "within_uncertainty",
+    "receiptIds": []
+  },
+  "lastLocalChecks": [
+    {
+      "baseline": {
+        "calibrationId": "{\"adc\": 4095, \"confirmationId\": \"5b895415-207a-4adb-bd95-291b7a55f170\", \"curveId\": \"field-copec-20260909-linear-v1-b0a652dc4528beeb\", \"empty\": 0.0, \"full\": 9.8, \"heightAtFullPercentMm\": 1467.0361111111115, \"heightAtZeroPercentMm\": 17.86111111111103, \"heightResolutionMm\": 10, \"label\": \"OCIO\", \"ocioFilter\": {\"band_percent\": 0.25, \"enabled\": true, \"quiet_seconds\": 15.0, \"support_fraction\": 0.8, \"window_seconds\": 120.0}, \"ocioOutputMode\": \"linear_height\", \"overflowHeightMm\": 1220, \"pin\": \"I0.2\", \"signal\": \"0-10v\", \"source\": \"plc_analog\", \"volumeConversion\": \"fm2500_field_20260909\"}",
+        "capacityLiters": 2662.0,
+        "levelLiters": 2662.0,
+        "occurredAt": "2026-09-09T18:09:21.802056+00:00",
+        "pulses": 4229,
+        "pulsesPerLiter": 90.0
+      },
+      "clearThresholdLiters": 10.0,
+      "differenceLiters": 0.0,
+      "differenceRange": {
+        "maxLiters": 67.888,
+        "minLiters": -67.888
+      },
+      "expectedLiters": 2662.0,
+      "id": "inventory-56503099-20dd-407a-95c2-9cc2718e8188",
+      "meteredLiters": 0.0,
+      "observed": {
+        "calibrationId": "{\"adc\": 4095, \"confirmationId\": \"5b895415-207a-4adb-bd95-291b7a55f170\", \"curveId\": \"field-copec-20260909-linear-v1-b0a652dc4528beeb\", \"empty\": 0.0, \"full\": 9.8, \"heightAtFullPercentMm\": 1467.0361111111115, \"heightAtZeroPercentMm\": 17.86111111111103, \"heightResolutionMm\": 10, \"label\": \"OCIO\", \"ocioFilter\": {\"band_percent\": 0.25, \"enabled\": true, \"quiet_seconds\": 15.0, \"support_fraction\": 0.8, \"window_seconds\": 120.0}, \"ocioOutputMode\": \"linear_height\", \"overflowHeightMm\": 1220, \"pin\": \"I0.2\", \"signal\": \"0-10v\", \"source\": \"plc_analog\", \"volumeConversion\": \"fm2500_field_20260909\"}",
+        "capacityLiters": 2662.0,
+        "levelLiters": 2662.0,
+        "occurredAt": "2026-09-09T18:14:26.228926+00:00",
+        "pulses": 4229,
+        "pulsesPerLiter": 90.0
+      },
+      "occurredAt": "2026-09-09T18:14:26.228926+00:00",
+      "reason": "startup",
+      "sampleCount": 3,
+      "spreadLimitLiters": 6.25,
+      "startedAt": "2026-09-09T18:10:24.104183+00:00",
+      "status": "within_uncertainty",
+      "suspectThresholdLiters": 20.0,
+      "uncertainty": {
+        "densityKgL": 0.8375,
+        "densitySource": "field_measurement_20260909",
+        "densityVerified": true,
+        "differenceBounds": {
+          "maxLiters": 67.888,
+          "minLiters": -67.888
+        },
+        "expectedBounds": {
+          "maxLiters": 2662.0,
+          "minLiters": 2594.113
+        },
+        "k24ErrorLiters": 0.0,
+        "measuredBounds": {
+          "maxLiters": 2662.0,
+          "minLiters": 2594.113
+        },
+        "ocioErrorMm": 47.76119402985074,
+        "policyId": "ocio-observed-plus-error-v1-density-8375",
+        "quantizationHalfStepMm": 5.0
+      }
+    },
+    {
+      "baseline": null,
+      "clearThresholdLiters": 10.0,
+      "id": "inventory-a0c5dd1f-e91e-40a7-a880-b36f6f7647dc",
+      "observed": {
+        "calibrationId": "{\"adc\": 4095, \"confirmationId\": \"5b895415-207a-4adb-bd95-291b7a55f170\", \"curveId\": \"field-copec-20260909-linear-v1-b0a652dc4528beeb\", \"empty\": 0.0, \"full\": 9.8, \"heightAtFullPercentMm\": 1467.0361111111115, \"heightAtZeroPercentMm\": 17.86111111111103, \"heightResolutionMm\": 10, \"label\": \"OCIO\", \"ocioFilter\": {\"band_percent\": 0.25, \"enabled\": true, \"quiet_seconds\": 15.0, \"support_fraction\": 0.8, \"window_seconds\": 120.0}, \"ocioOutputMode\": \"linear_height\", \"overflowHeightMm\": 1220, \"pin\": \"I0.2\", \"signal\": \"0-10v\", \"source\": \"plc_analog\", \"volumeConversion\": \"fm2500_field_20260909\"}",
+        "capacityLiters": 2662.0,
+        "levelLiters": 2662.0,
+        "occurredAt": "2026-09-09T17:35:58.377115+00:00",
+        "pulses": 4229,
+        "pulsesPerLiter": 90.0
+      },
+      "occurredAt": "2026-09-09T17:35:58.377115+00:00",
+      "reason": "startup",
+      "sampleCount": 3,
+      "spreadLimitLiters": 6.25,
+      "startedAt": "2026-09-09T17:31:56.654357+00:00",
+      "status": "unverifiable",
+      "suspectThresholdLiters": 20.0
+    },
+    {
+      "baseline": null,
+      "id": "inventory-79e9ea41-8dad-4eba-a950-795ad3311e2b-timeout",
+      "occurredAt": "2026-09-09T15:06:06.714766+00:00",
+      "reason": "startup",
+      "startedAt": "2026-09-09T15:01:06.471220+00:00",
+      "status": "unverifiable",
+      "timeoutReported": true
+    },
+    {
+      "baseline": null,
+      "id": "inventory-86e9e41e-69ff-45da-9691-b598579e16b1-timeout",
+      "occurredAt": "2026-09-09T14:53:45.443983+00:00",
+      "reason": "startup",
+      "startedAt": "2026-09-09T14:48:45.306380+00:00",
+      "status": "unverifiable",
+      "timeoutReported": true
+    }
+  ],
+  "startupVerificationComplete": true,
+  "currentStartupCheckUsesPolicy": true
+}

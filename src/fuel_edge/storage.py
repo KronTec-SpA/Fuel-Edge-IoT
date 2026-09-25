@@ -9,9 +9,43 @@ from pathlib import Path
 from threading import RLock
 from typing import Any
 from uuid import NAMESPACE_URL, uuid5
+from .volume_format import format_liters_cl
 
 
 SCHEMA = """
+CREATE TABLE IF NOT EXISTS ocio_calibration_state (
+    site_id TEXT PRIMARY KEY, payload TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS ocio_calibration_history (
+    id TEXT PRIMARY KEY, site_id TEXT NOT NULL, payload TEXT NOT NULL,
+    previous_inventory_state TEXT
+);
+CREATE TABLE IF NOT EXISTS ocio_signal_diagnostics (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    occurred_at TEXT NOT NULL,
+    payload TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_ocio_diagnostics_time ON ocio_signal_diagnostics(occurred_at);
+CREATE TABLE IF NOT EXISTS inventory_meter (
+    id INTEGER PRIMARY KEY CHECK(id = 1),
+    pulses INTEGER NOT NULL DEFAULT 0 CHECK(pulses >= 0)
+);
+INSERT OR IGNORE INTO inventory_meter(id,pulses) VALUES (1,0);
+CREATE TABLE IF NOT EXISTS inventory_monitor_state (
+    site_id TEXT PRIMARY KEY,
+    payload TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS inventory_checks (
+    id TEXT PRIMARY KEY,
+    site_id TEXT NOT NULL,
+    payload TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS inventory_balance_samples (
+    id TEXT PRIMARY KEY,
+    site_id TEXT NOT NULL,
+    occurred_at TEXT NOT NULL,
+    payload TEXT NOT NULL
+);
 CREATE TABLE IF NOT EXISTS audit_log (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     occurred_at TEXT NOT NULL,
@@ -136,11 +170,6 @@ ON power_supply_events(lost_at);
 """
 
 
-def format_liters_cl(liters: float) -> str:
-    """Formatea litros con punto de miles y coma decimal para Chile."""
-    return f"{liters:,.3f}".translate(str.maketrans({",": ".", ".": ","}))
-
-
 def _is_pump_enablement(
     liters: float,
     threshold_liters: float | None,
@@ -202,6 +231,114 @@ class EventStore:
             )
             self.connection.commit()
             return int(cursor.lastrowid)
+
+    def ocio_calibration(self, site_id: str) -> dict | None:
+        with self._lock:
+            row = self.connection.execute("SELECT payload FROM ocio_calibration_state WHERE site_id=?", (site_id,)).fetchone()
+            return json.loads(row[0]) if row else None
+
+    def apply_ocio_calibration(self, site_id: str, command: dict) -> tuple[dict, bool]:
+        """Confirmación, archivo de referencia y respuesta web, en una transacción."""
+        with self._lock, self.connection:
+            current = self.ocio_calibration(site_id)
+            changed = not current or current['confirmationId'] != command['confirmationId']
+            if changed:
+                if current and command['revision'] <= current['revision']:
+                    raise ValueError('confirmación OCIO anterior a la aplicada')
+                previous = self.connection.execute('SELECT payload FROM inventory_monitor_state WHERE site_id=?', (site_id,)).fetchone()
+                current = {**command, 'siteId':site_id, 'appliedAt':datetime.now(timezone.utc).isoformat()}
+                encoded = self._encode_payload(current)
+                self.connection.execute('INSERT INTO ocio_calibration_history(id,site_id,payload,previous_inventory_state) VALUES (?,?,?,?)',
+                    (current['confirmationId'],site_id,encoded,previous[0] if previous else None))
+                self.connection.execute('INSERT INTO ocio_calibration_state(site_id,payload) VALUES (?,?) ON CONFLICT(site_id) DO UPDATE SET payload=excluded.payload', (site_id,encoded))
+                self.connection.execute('DELETE FROM inventory_monitor_state WHERE site_id=?',(site_id,))
+            elif current['fingerprint'] != command['fingerprint'] or current['revision'] != command['revision']:
+                raise ValueError('confirmación OCIO reutilizada con otra configuración')
+            self.connection.execute("INSERT OR IGNORE INTO outbox(topic,payload,dedupe_key) VALUES ('web/ocio-calibration-applied',?,?)",
+                (self._encode_payload(current),'web/ocio-calibration:'+current['confirmationId']))
+            return current, changed
+
+    def record_ocio_diagnostics(self, samples: list[dict], *, site_id: str | None = None, telemetry_session_id: str | None = None) -> None:
+        """Traza local de 24 h y entrega durable del histórico a la base central."""
+        if not samples:
+            return
+        with self._lock, self.connection:
+            self.connection.executemany(
+                "INSERT INTO ocio_signal_diagnostics(occurred_at,payload) VALUES (?,?)",
+                [(s["occurredAt"], self._encode_payload(s)) for s in samples],
+            )
+            if site_id is not None:
+                for offset in range(0, len(samples), 30):
+                    batch = samples[offset:offset + 30]
+                    payload = {"siteId": site_id, "telemetrySessionId": telemetry_session_id,
+                               "source": "OCIO", "samples": batch}
+                    key = f"web/voltage-readings:{site_id}:{telemetry_session_id}:{batch[0]['occurredAt']}:{batch[-1]['occurredAt']}"
+                    self.connection.execute(
+                        "INSERT OR IGNORE INTO outbox(topic,payload,dedupe_key) VALUES (?,?,?)",
+                        ("web/voltage-readings", self._encode_payload(payload), key),
+                    )
+            self.connection.execute(
+                "DELETE FROM ocio_signal_diagnostics WHERE julianday(occurred_at) "
+                "< julianday(?) - 1", (samples[-1]["occurredAt"],),
+            )
+
+    def record_inventory_pulses(self, count: int) -> None:
+        """Total físico independiente del cierre de una carga y de su autorización."""
+        if not isinstance(count, int) or isinstance(count, bool) or count <= 0:
+            raise ValueError("count debe ser un entero positivo")
+        with self._lock, self.connection:
+            self.connection.execute(
+                "UPDATE inventory_meter SET pulses=pulses+? WHERE id=1", (count,)
+            )
+
+    def inventory_pulses(self) -> int:
+        with self._lock:
+            return int(self.connection.execute(
+                "SELECT pulses FROM inventory_meter WHERE id=1"
+            ).fetchone()[0])
+
+    def inventory_state(self, site_id: str) -> dict[str, Any] | None:
+        with self._lock:
+            row = self.connection.execute(
+                "SELECT payload FROM inventory_monitor_state WHERE site_id=?", (site_id,)
+            ).fetchone()
+            return json.loads(row[0]) if row else None
+
+    def save_inventory_state(
+        self, site_id: str, state: dict[str, Any], *,
+        check: dict[str, Any] | None = None,
+        alert: dict[str, Any] | None = None,
+        balance_sample: dict[str, Any] | None = None,
+    ) -> None:
+        """Referencia, evidencia y alarma se confirman juntas, incluso sin red."""
+        with self._lock, self.connection:
+            if balance_sample is not None:
+                encoded = self._encode_payload(balance_sample)
+                self.connection.execute(
+                    "INSERT OR IGNORE INTO inventory_balance_samples(id,site_id,occurred_at,payload) "
+                    "VALUES (?,?,?,?)",
+                    (balance_sample["id"], site_id, balance_sample["occurredAt"], encoded),
+                )
+                self.connection.execute(
+                    "INSERT OR IGNORE INTO outbox(topic,payload,dedupe_key) "
+                    "VALUES ('web/inventory-balance',?,?)",
+                    (encoded, f"web/inventory-balance:{balance_sample['id']}"),
+                )
+            if check is not None:
+                self.connection.execute(
+                    "INSERT OR IGNORE INTO inventory_checks(id,site_id,payload) VALUES (?,?,?)",
+                    (check["id"], site_id, self._encode_payload(check)),
+                )
+            if alert is not None:
+                self.connection.execute(
+                    "INSERT OR IGNORE INTO outbox(topic,payload,dedupe_key) VALUES ('web/alert',?,?)",
+                    (self._encode_payload(alert), f"web/alert:{alert['id']}"),
+                )
+            self.connection.execute(
+                "INSERT INTO inventory_monitor_state(site_id,payload) VALUES (?,?) "
+                "ON CONFLICT(site_id) DO UPDATE SET payload=excluded.payload",
+                (site_id, self._encode_payload(state)),
+            )
 
     def open_transaction(
         self,
@@ -765,7 +902,7 @@ class EventStore:
             raise ValueError("origen de corte eléctrico inválido")
         normalized_lost_at = _utc_datetime(lost_at).isoformat()
         event_id = _power_event_id(normalized_lost_at)
-        with self._lock:
+        with self._lock, self.connection:
             self.connection.execute(
                 """INSERT OR IGNORE INTO power_supply_events(
                     id,site_id,lost_at,source,loss_boot_id,status
@@ -773,11 +910,15 @@ class EventStore:
                 (event_id, site_id, normalized_lost_at, source, loss_boot_id),
             )
             row = self.connection.execute(
-                "SELECT id FROM power_supply_events WHERE status='open' LIMIT 1"
+                "SELECT id,lost_at,source FROM power_supply_events WHERE status='open' LIMIT 1"
             ).fetchone()
-            self.connection.commit()
             if row is None:
                 raise RuntimeError("no se pudo guardar el corte eléctrico abierto")
+            # El hook UPS no espera a la red. Corte y alarma se confirman en la
+            # misma transacción antes del apagado, incluso si falta el site_id.
+            self._enqueue_power_alert_locked({
+                "id": str(row[0]), "lostAt": str(row[1]), "source": str(row[2]),
+            })
             return str(row[0])
 
     def close_open_power_loss(
@@ -788,7 +929,7 @@ class EventStore:
         restore_boot_id: str | None = None,
     ) -> dict[str, Any] | None:
         restored = _utc_datetime(restored_at)
-        with self._lock:
+        with self._lock, self.connection:
             row = self.connection.execute(
                 """SELECT id,lost_at,source,loss_boot_id
                 FROM power_supply_events WHERE status='open' LIMIT 1"""
@@ -822,6 +963,7 @@ class EventStore:
                 ),
             )
             self._enqueue_power_event_locked(payload)
+            self._enqueue_power_alert_locked(payload)
             self.connection.commit()
             return payload
 
@@ -854,7 +996,7 @@ class EventStore:
             "lossBootId": loss_boot_id,
             "restoreBootId": restore_boot_id,
         }
-        with self._lock:
+        with self._lock, self.connection:
             self.connection.execute(
                 """INSERT INTO power_supply_events(
                     id,site_id,lost_at,restored_at,duration_seconds,source,
@@ -878,6 +1020,7 @@ class EventStore:
                 ),
             )
             self._enqueue_power_event_locked(payload)
+            self._enqueue_power_alert_locked(payload)
             self.connection.commit()
         return payload
 
@@ -902,6 +1045,37 @@ class EventStore:
             }
             for row in rows
         ]
+
+    def _enqueue_power_alert_locked(self, payload: dict[str, Any]) -> None:
+        source = {
+            "ups_gpio24": "Detectado por la UPS del PLC.",
+            "operator_confirmed": "Corte confirmado por el operador.",
+            "reconstructed": "Corte reconstruido a partir del registro eléctrico.",
+        }[payload["source"]]
+        if payload.get("restoredAt"):
+            hours, remainder = divmod(int(payload["durationSeconds"]), 3600)
+            minutes, seconds = divmod(remainder, 60)
+            restored = _utc_datetime(payload["restoredAt"]).strftime("%d/%m/%Y %H:%M:%S UTC")
+            detail = (f"{source} Recuperación registrada: {restored}. "
+                      f"Duración registrada: {hours} h {minutes} min {seconds} s. "
+                      "La recuperación no confirma la cuadratura del inventario; revisar su resultado.")
+        else:
+            detail = f"{source} Suministro interrumpido; recuperación aún no registrada."
+        alert = {
+            "id": f"edge-alert-{payload['id']}", "severity": "warning", "priority": "high",
+            "title": "Corte eléctrico", "detail": f"{detail} Registro: {payload['id']}.",
+            "occurredAt": payload["lostAt"],
+        }
+        # La recuperación actualiza la misma alarma. Reintentar el mismo dato
+        # no crea otra ni vuelve a enviar una versión que ya fue entregada.
+        self.connection.execute(
+            """INSERT INTO outbox(topic,payload,dedupe_key) VALUES ('web/alert',?,?)
+            ON CONFLICT(dedupe_key) DO UPDATE SET
+                payload=excluded.payload,created_at=CURRENT_TIMESTAMP,sent_at=NULL,
+                attempt_count=0,next_attempt_at=NULL,last_error=NULL,discarded_at=NULL
+            WHERE outbox.payload<>excluded.payload""",
+            (self._encode_payload(alert), f"web/alert:{alert['id']}"),
+        )
 
     def _enqueue_power_event_locked(self, payload: dict[str, Any]) -> None:
         self.connection.execute(
@@ -950,6 +1124,9 @@ class EventStore:
         occurred_at: str,
         source: str = "OCIO",
         telemetry_session_id: str | None = None,
+        min_liters: float | None = None,
+        max_liters: float | None = None,
+        calibration_id: str | None = None,
     ) -> int:
         payload: dict[str, Any] = {
             "levelLiters": round(level_liters, 3),
@@ -958,6 +1135,16 @@ class EventStore:
         }
         if telemetry_session_id is not None:
             payload["telemetrySessionId"] = telemetry_session_id
+        if calibration_id is not None:
+            if not isinstance(calibration_id, str) or not calibration_id or len(calibration_id) > 160:
+                raise ValueError("calibration_id inválido")
+            payload["calibrationId"] = calibration_id
+        if min_liters is not None or max_liters is not None:
+            from math import isfinite
+            if min_liters is None or max_liters is None or not all(isfinite(v) for v in (min_liters, max_liters)) or not 0 <= min_liters <= level_liters <= max_liters:
+                raise ValueError("intervalo de nivel inválido")
+            payload.pop("levelLiters")
+            payload["levelRange"] = {"minLiters": min_liters, "maxLiters": max_liters}
         return self.enqueue(
             "web/level-reading",
             payload,

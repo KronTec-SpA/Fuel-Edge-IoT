@@ -91,15 +91,15 @@ export async function startTechnologyAdoptionProgram(
   }
   const revision = current.revision + 1;
   const note = "Inicio de la etapa de adopción tecnológica.";
-  await db.batch([
+  const result = await db.batch([
     db.prepare(`UPDATE technology_adoption_settings SET
         stage='assisted',program_status='active',revision=?,program_started_at=CURRENT_TIMESTAMP,
         completed_at=NULL,stage_started_at=CURRENT_TIMESTAMP,review_at=NULL,
         updated_by=?,updated_at=CURRENT_TIMESTAMP,note=?
-      WHERE site_id=?`).bind(revision, actor.id, note, siteId),
+      WHERE site_id=? AND revision=? AND program_status='inactive'`).bind(revision, actor.id, note, siteId, current.revision),
     db.prepare(`INSERT INTO technology_adoption_transitions(
       id,site_id,from_stage,to_stage,reason,actor_user_id
-    ) VALUES (?,?,?,?,?,?)`).bind(
+    ) SELECT ?,?,?,?,?,? WHERE changes()>0`).bind(
       `adoption-transition-${crypto.randomUUID()}`,
       siteId,
       current.stage,
@@ -108,6 +108,7 @@ export async function startTechnologyAdoptionProgram(
       actor.id,
     ),
   ]);
+  requirePolicyUpdated(result);
   await audit(db, "technology_adoption_started", actor.id, null, {
     siteId,
     fromStage: current.stage,
@@ -129,23 +130,18 @@ export async function deactivateTechnologyAdoptionProgram(
       : "La etapa de adopción tecnológica no está activa.");
   }
   await ensureManualModeStore(db);
-  const openAssistedSession = await db.prepare(`SELECT id FROM manual_mode_schedules
-    WHERE purpose='adoption_assisted' AND status IN ('scheduled','active') LIMIT 1`).first<{ id: string }>();
-  if (openAssistedSession) {
-    throw new TechnologyAdoptionConflict("Cancela la sesión asistida antes de desactivar la adopción tecnológica.");
-  }
   const revision = current.revision + 1;
   const note = "Programa desactivado por administración; se restaura la trazabilidad completa.";
   const statements = [
     db.prepare(`UPDATE technology_adoption_settings SET
         stage='full',program_status='inactive',revision=?,completed_at=NULL,
         stage_started_at=CURRENT_TIMESTAMP,review_at=NULL,updated_by=?,updated_at=CURRENT_TIMESTAMP,note=?
-      WHERE site_id=? AND program_status='active'`).bind(revision, actor.id, note, siteId),
+      WHERE site_id=? AND program_status='active' AND revision=?`).bind(revision, actor.id, note, siteId, current.revision),
   ];
   if (current.stage !== "full") {
     statements.push(db.prepare(`INSERT INTO technology_adoption_transitions(
       id,site_id,from_stage,to_stage,reason,actor_user_id
-    ) VALUES (?,?,?,?,?,?)`).bind(
+    ) SELECT ?,?,?,?,?,? WHERE changes()>0`).bind(
       `adoption-transition-${crypto.randomUUID()}`,
       siteId,
       current.stage,
@@ -154,12 +150,20 @@ export async function deactivateTechnologyAdoptionProgram(
       actor.id,
     ));
   }
-  await db.batch(statements);
+  // Retire the assisted window in the same transaction as the policy. The
+  // existing edge reconciliation closes its segment when the schedule is null.
+  statements.push(db.prepare(`UPDATE manual_mode_schedules SET
+      status='cancelled',cancelled_at=CURRENT_TIMESTAMP,completed_at=CURRENT_TIMESTAMP,error=NULL
+    WHERE site_id=? AND purpose='adoption_assisted' AND status IN ('scheduled','active')
+      AND EXISTS (SELECT 1 FROM technology_adoption_settings
+        WHERE site_id=? AND program_status='inactive' AND revision=?)`).bind(siteId, siteId, revision));
+  requirePolicyUpdated(await db.batch(statements));
   await audit(db, "technology_adoption_deactivated", actor.id, null, {
     siteId,
     fromStage: current.stage,
     toStage: "full",
     revision,
+    assistedSessionsCancelled: true,
   });
   return technologyAdoptionSettings(db, siteId);
 }
@@ -198,13 +202,13 @@ export async function updateTechnologyAdoptionSettings(
         stage=?,revision=?,stage_started_at=CASE WHEN stage<>? THEN CURRENT_TIMESTAMP ELSE stage_started_at END,
         program_status=?,completed_at=CASE WHEN ?='completed' THEN CURRENT_TIMESTAMP ELSE completed_at END,
         review_at=?,updated_by=?,updated_at=CURRENT_TIMESTAMP,note=?
-      WHERE site_id=?`).bind(input.stage, revision, input.stage, completing ? "completed" : "active",
-      completing ? "completed" : "active", completing ? null : reviewAt, actor.id, note, siteId),
+      WHERE site_id=? AND revision=? AND program_status='active'`).bind(input.stage, revision, input.stage, completing ? "completed" : "active",
+      completing ? "completed" : "active", completing ? null : reviewAt, actor.id, note, siteId, current.revision),
   ];
   if (changedStage) {
     statements.push(db.prepare(`INSERT INTO technology_adoption_transitions(
       id,site_id,from_stage,to_stage,reason,actor_user_id
-    ) VALUES (?,?,?,?,?,?)`).bind(
+    ) SELECT ?,?,?,?,?,? WHERE changes()>0`).bind(
       `adoption-transition-${crypto.randomUUID()}`,
       siteId,
       current.stage,
@@ -213,7 +217,7 @@ export async function updateTechnologyAdoptionSettings(
       actor.id,
     ));
   }
-  await db.batch(statements);
+  requirePolicyUpdated(await db.batch(statements));
   await audit(db, completing ? "technology_adoption_completed" : changedStage ? "technology_adoption_stage_changed" : "technology_adoption_review_updated", actor.id, null, {
     siteId,
     fromStage: current.stage,
@@ -271,7 +275,9 @@ export async function technologyAdoptionDashboard(db: D1DatabaseLike, siteId: st
       stage: validTechnologyAdoptionStage(edge.stage) ? edge.stage : null,
       revision: Number(edge.revision ?? 0),
       occurredAt: typeof edge.occurredAt === "string" ? edge.occurredAt : null,
-      applied: edge.stage === settings.stage && Number(edge.revision) === settings.revision,
+      applied: edge.stage === settings.stage && Number(edge.revision) === settings.revision
+        && Date.now() - Date.parse(String(edge.occurredAt)) >= 0
+        && Date.now() - Date.parse(String(edge.occurredAt)) <= 30_000,
     } : null,
     history: historyRows.results.map((row) => ({
       id: String(row.id),
@@ -289,6 +295,13 @@ export function validTechnologyAdoptionStage(value: unknown): value is Technolog
 }
 
 export class TechnologyAdoptionConflict extends Error {}
+
+function requirePolicyUpdated(result: unknown) {
+  const updates = result as { meta?: { changes?: number } }[];
+  if (updates[0]?.meta?.changes !== 1) {
+    throw new TechnologyAdoptionConflict("La adopción cambió desde otra solicitud. Actualiza la pantalla antes de continuar.");
+  }
+}
 
 function normalizeSettings(row: Record<string, unknown>): TechnologyAdoptionSettings {
   return {

@@ -1,0 +1,8 @@
+{
+  "status": "verified",
+  "auditId": 637,
+  "at": "2026-09-09T17:35:59.329327+00:00",
+  "stockLiters": 2662,
+  "balanceDifferenceLiters": 0,
+  "backup": "/var/backups/fuel-edge/20260909-copec-final"
+}

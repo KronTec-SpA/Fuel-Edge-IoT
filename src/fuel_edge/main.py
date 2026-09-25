@@ -6,6 +6,7 @@ import argparse
 import json
 import signal
 import sys
+from dataclasses import asdict
 from time import monotonic
 from pathlib import Path
 from threading import Event
@@ -17,6 +18,7 @@ from .config import (
     load_config,
 )
 from .domain import EdgeEvent, FuelEdgeMachine
+from .tank_table import HEIGHT_CONVERSIONS
 from .hardware.industrial_shields import (
     AnalogInputError,
     IndustrialShieldsK24Reader,
@@ -50,6 +52,8 @@ from .service import FuelEdgeService
 from .power_events import reconcile_power_restoration
 from .storage import EventStore
 from .tank_level import TankLevelFileReader
+from .inventory_monitor import InventoryMonitor
+from .ocio_calibration import OcioCalibrationCoordinator, restore_calibration
 from .validator_registry import load_validator_registry
 from .web_sync import WebSyncWorker, read_web_sensor_key
 from .web_authorization import WebAuthorizationDirectory
@@ -134,6 +138,7 @@ def _run(config: AppConfig, *, simulate: bool, tick_seconds: float) -> None:
     technology_adoption: TechnologyAdoptionCoordinator | None = None
     nfc_enrollment: NfcEnrollmentCoordinator | None = None
     validator_settings: ValidatorSettingsCoordinator | None = None
+    ocio_calibration: OcioCalibrationCoordinator | None = None
     equipment_registry_distributor: EquipmentRegistryDistributor | None = None
     equipment_registry_removals: EquipmentRegistryRemovalCoordinator | None = None
     k24_reader: IndustrialShieldsK24Reader | None = None
@@ -174,6 +179,7 @@ def _run(config: AppConfig, *, simulate: bool, tick_seconds: float) -> None:
             validator_enabled=config.validator.enabled,
         )
         service.assign(config.identity.module_id, config.identity.site_id)
+        inventory_monitor = None
         if config.k24.enabled and not simulate:
             k24_reader = IndustrialShieldsK24Reader(
                 pin=config.k24.input_pin,
@@ -200,12 +206,19 @@ def _run(config: AppConfig, *, simulate: bool, tick_seconds: float) -> None:
                     publish_interval_seconds=config.tank_level.publish_interval_seconds,
                     stability_seconds=config.tank_level.stability_seconds,
                     stability_band_percent=config.tank_level.stability_band_percent,
+                    volume_conversion=config.tank_level.volume_conversion,
+                    ocio_height_signal=config.tank_level.ocio_height_signal,
+                    ocio_calibration_pending=config.tank_level.ocio_calibration_pending,
+                    cycle_filter=config.tank_level.cycle_filter,
                 )
             else:
                 tank_level_reader = TankLevelFileReader(
                     config.tank_level.reading_path,
                     config.tank_level.capacity_liters,
                 )
+        if isinstance(tank_level_reader, IndustrialShieldsTankLevelReader):
+            restore_calibration(store, config.identity.site_id, tank_level_reader)
+        inventory_monitor = _inventory_for_reader(store, config, tank_level_reader)
         if config.web_sync.enabled:
             web_sensor_key = read_web_sensor_key(config.web_sync.sensor_key_path)
             web_sync_worker = WebSyncWorker(
@@ -224,6 +237,13 @@ def _run(config: AppConfig, *, simulate: bool, tick_seconds: float) -> None:
                 ),
             )
             web_sync_worker.start()
+            if isinstance(tank_level_reader, IndustrialShieldsTankLevelReader):
+                ocio_calibration = OcioCalibrationCoordinator(
+                    config.web_sync, web_sensor_key, site_id=config.identity.site_id,
+                    session_id=service.telemetry_session_id, reader=tank_level_reader,
+                    on_error=lambda error: print(json.dumps({"component":"ocio_calibration","error":type(error).__name__}),file=sys.stderr,flush=True),
+                )
+                ocio_calibration.start()
             relay_test = RelayTestCoordinator(
                 RelayTestWebClient(config.web_sync, web_sensor_key),
                 service,
@@ -472,6 +492,14 @@ def _run(config: AppConfig, *, simulate: bool, tick_seconds: float) -> None:
             if validator_application is not None:
                 validator_application.check_credential_presence_timeout()
             service.tick()
+            if ocio_calibration is not None:
+                try:
+                    if ocio_calibration.apply_if_idle(store, idle=not machine.relay.is_energized):
+                        inventory_monitor = _inventory_for_reader(store, config, tank_level_reader)
+                        if web_sync_worker is not None:
+                            web_sync_worker.wake()
+                except (OSError, ValueError) as error:
+                    print(json.dumps({"component":"ocio_calibration","error":type(error).__name__}),file=sys.stderr,flush=True)
             if web_sync_worker is not None and monotonic() >= next_status_at:
                 service.publish_status()
                 web_sync_worker.wake()
@@ -491,7 +519,16 @@ def _run(config: AppConfig, *, simulate: bool, tick_seconds: float) -> None:
                             reading.level_liters,
                             reading.occurred_at,
                             source=reading.source,
+                            min_liters=reading.min_liters, max_liters=reading.max_liters,
+                            calibration_id=reading.calibration_id,
                         )
+                        if inventory_monitor is not None:
+                            inventory_monitor.observe(
+                                reading.level_liters, reading.occurred_at,
+                                idle=not machine.relay.is_energized,
+                                meter_healthy=machine.k24_healthy,
+                                min_liters=reading.min_liters, max_liters=reading.max_liters,
+                            )
                         if web_sync_worker is not None:
                             web_sync_worker.wake()
                 except (AnalogInputError, OSError, UnicodeError, ValueError) as error:
@@ -508,6 +545,20 @@ def _run(config: AppConfig, *, simulate: bool, tick_seconds: float) -> None:
                             flush=True,
                         )
                         next_tank_error_at = now + 60.0
+                finally:
+                    if isinstance(tank_level_reader, IndustrialShieldsTankLevelReader):
+                        store.record_ocio_diagnostics(tank_level_reader.drain_diagnostics(), site_id=config.identity.site_id, telemetry_session_id=service.telemetry_session_id)
+                        quality = tank_level_reader.quality_update()
+                        if quality:
+                            if inventory_monitor is not None:
+                                inventory_monitor.publish_health(quality=quality)
+                            store.enqueue_latest("web/level-reading", {
+                                **quality, "telemetrySessionId": service.telemetry_session_id,
+                            }, "web/level-quality:latest")
+            if inventory_monitor is not None:
+                # New evidence gets a chance to complete verification first.
+                inventory_monitor.tick()
+                inventory_monitor.publish_health()
             # El latido representa una vuelta completa y saludable del bucle,
             # no sólo la existencia del proceso Python.
             systemd.watchdog()
@@ -543,6 +594,9 @@ def _run(config: AppConfig, *, simulate: bool, tick_seconds: float) -> None:
                     if relay_test is not None:
                         relay_test.close()
                         relay_test = None
+                    if ocio_calibration is not None:
+                        ocio_calibration.close()
+                        ocio_calibration = None
                     if web_sync_worker is not None:
                         web_sync_worker.close()
                 finally:
@@ -554,7 +608,24 @@ def _run(config: AppConfig, *, simulate: bool, tick_seconds: float) -> None:
                             relay.deenergize()
                         finally:
                             if store is not None:
+                                if isinstance(tank_level_reader, IndustrialShieldsTankLevelReader):
+                                    store.record_ocio_diagnostics(tank_level_reader.drain_diagnostics(force=True), site_id=config.identity.site_id, telemetry_session_id=service.telemetry_session_id)
                                 store.close()
+
+
+def _inventory_for_reader(store, config, reader):
+    pending = reader.ocio_calibration_pending if isinstance(reader, IndustrialShieldsTankLevelReader) else config.tank_level.ocio_calibration_pending
+    if not config.tank_level.enabled or pending:
+        return None
+    level = config.tank_level
+    return InventoryMonitor(store,site_id=config.identity.site_id,
+        capacity_liters=level.capacity_liters,pulses_per_liter=config.k24.pulses_per_liter,
+        calibration_id=json.dumps({"source":level.source,"pin":level.input_pin,"label":level.telemetry_source,
+            "signal":level.signal_mode,"empty":level.input_empty_volts,"full":level.input_full_volts,
+            "adc":level.adc_full_scale,"volumeConversion":level.volume_conversion,
+            **(level.ocio_height_signal.calibration_metadata(level.volume_conversion) if level.volume_conversion in HEIGHT_CONVERSIONS else {}),
+            "ocioFilter":asdict(level.cycle_filter),"confirmationId":getattr(reader,'confirmation_id',None)},sort_keys=True),
+        k24_enabled=config.k24.enabled, customer_policy=True)
 
 
 def _sync_equipment_registry(
@@ -642,6 +713,7 @@ def _summary(config: AppConfig) -> dict[str, object]:
         "tank_level_enabled": config.tank_level.enabled,
         "tank_level_source": config.tank_level.source,
         "tank_level_signal": config.tank_level.signal_mode,
+        "tank_level_cycle_filter": asdict(config.tank_level.cycle_filter),
     }
 
 

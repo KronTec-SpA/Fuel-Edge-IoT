@@ -36,6 +36,100 @@ async function loadWorker() {
 
 const executionContext = { waitUntil() {}, passThroughOnException() {} };
 
+test("desactivar cierra sesiones activas y rechaza programaciones que llegan tarde", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "fuel-adoption-close-"));
+  const database = createLocalD1(join(directory, "web.sqlite3"));
+  globalThis.__FUEL_EDGE_LOCAL_DB__ = database;
+  try {
+    const worker = await loadWorker();
+    const env = authEnv("master@example.test", "test-password");
+    const request = async (path, method="POST", body={}, headers={}) => worker.fetch(new Request(`http://localhost/api/${path}`, {
+      method, headers:{origin:"http://localhost","content-type":"application/json",...headers},
+      ...(method === "GET" ? {} : {body:JSON.stringify(body)}),
+    }),env,executionContext);
+    const login = await request("auth/login","POST",{email:"master@example.test",password:"test-password"});
+    assert.equal(login.status,200);
+    const actor={cookie:login.headers.get("set-cookie").split(";",1)[0]};
+    const edge={"x-edge-sensor-key":env.FUEL_SENSOR_INGEST_KEY};
+    const window={startAt:new Date(Date.now()-1000).toISOString(),endAt:new Date(Date.now()+3600000).toISOString()};
+    assert.equal((await request("technology-adoption/start","POST",{},actor)).status,201);
+    const schedule=(await (await request("manual-mode","POST",{...window,purpose:"adoption_assisted"},actor)).json()).schedule;
+    assert.equal((await request(`manual-mode/edge/${schedule.id}/state`,"POST",{state:"active"},edge)).status,200);
+    assert.equal((await request("technology-adoption/deactivate","POST",{},actor)).status,200);
+    assert.equal((await (await request("manual-mode/edge/current","POST",{},edge)).json()).schedule,null);
+    assert.equal((await request(`manual-mode/edge/${schedule.id}/state`,"POST",{state:"active"},edge)).status,409);
+    const closed=await request(`manual-mode/edge/${schedule.id}/state`,"POST",{state:"completed"},edge);
+    assert.equal((await closed.json()).schedule.status,"cancelled");
+    assert.equal((await request("manual-mode","POST",{...window,purpose:"adoption_assisted"},actor)).status,409);
+
+    // Ordinary manual work remains independent of the program's lifecycle.
+    const manual=(await (await request("manual-mode","POST",{...window,purpose:"manual"},actor)).json()).schedule;
+    assert.equal((await request("technology-adoption/start","POST",{},actor)).status,201);
+    assert.equal((await request("technology-adoption/deactivate","POST",{},actor)).status,200);
+    assert.equal((await (await request("manual-mode/edge/current","POST",{},edge)).json()).schedule.id,manual.id);
+    await request(`manual-mode/${manual.id}`,"DELETE",{},actor);
+
+    assert.equal((await request("technology-adoption/start","POST",{},actor)).status,201);
+    // Force deactivation between initial API validation and the SQL INSERT.
+    const originalPrepare=database.prepare.bind(database);
+    let intercepted=false;
+    database.prepare=query=>{
+      const statement=originalPrepare(query);
+      if (/INSERT INTO manual_mode_schedules/u.test(query)) {
+        const bind=statement.bind.bind(statement);
+        statement.bind=(...values)=>{
+          const bound=bind(...values),run=bound.run.bind(bound);
+          bound.run=async()=>{
+            intercepted=true;
+            assert.equal((await request("technology-adoption/deactivate","POST",{},actor)).status,200);
+            return run();
+          };
+          return bound;
+        };
+      }
+      return statement;
+    };
+    const late=await request("manual-mode","POST",{...window,purpose:"adoption_assisted"},actor);
+    database.prepare=originalPrepare;
+    assert.equal(intercepted,true);
+    assert.equal(late.status,409);
+    assert.equal((await (await request("manual-mode/edge/current","POST",{},edge)).json()).schedule,null);
+    assert.equal((await database.prepare("SELECT COUNT(*) AS n FROM manual_mode_schedules WHERE status IN ('scheduled','active')").first()).n,0);
+
+    // A review started in another tab must not reactivate the program after close.
+    assert.equal((await request("technology-adoption/start","POST",{},actor)).status,201);
+    const batch=database.batch.bind(database);
+    let reviewed=false;
+    database.batch=async statements=>{
+      if (/UPDATE technology_adoption_settings/u.test(statements[0]?.query ?? "")) {
+        database.batch=batch;
+        reviewed=true;
+        assert.equal((await request("technology-adoption/deactivate","POST",{},actor)).status,200);
+      }
+      return batch(statements);
+    };
+    const lateReview=await request("technology-adoption","PUT",{stage:"rfid_only",reviewAt:null,note:"Revisión anterior a la desactivación"},actor);
+    database.batch=batch;
+    assert.equal(reviewed,true);
+    assert.equal(lateReview.status,409);
+    const inactive=(await (await request("technology-adoption","GET",{},actor)).json()).settings;
+    assert.equal(inactive.programStatus,"inactive");
+    assert.equal(inactive.stage,"full");
+
+    // A revision match in an old report must not confirm application today.
+    const settings=(await (await request("technology-adoption","GET",{},actor)).json()).settings;
+    await database.prepare(`INSERT OR REPLACE INTO edge_runtime_status(id,module_id,site_id,state,relay_energized,validator_online,k24_healthy,technology_adoption_stage,adoption_policy_revision,occurred_at)
+      VALUES (1,'rpi',?,'locked',0,1,1,'full',?,?)`).bind(env.FUEL_SITE_ID,settings.revision,new Date(Date.now()-60000).toISOString()).run();
+    assert.equal((await (await request("technology-adoption","GET",{},actor)).json()).edgeApplication.applied,false);
+    await database.prepare("UPDATE edge_runtime_status SET occurred_at=? WHERE id=1").bind(new Date().toISOString()).run();
+    assert.equal((await (await request("technology-adoption","GET",{},actor)).json()).edgeApplication.applied,true);
+  } finally {
+    delete globalThis.__FUEL_EDGE_LOCAL_DB__;
+    database.close();
+    await rm(directory,{recursive:true,force:true});
+  }
+});
+
 test("la adopción avanza por etapas y habilita sesiones asistidas auditables", async () => {
   const directory = await mkdtemp(join(tmpdir(), "fuel-adoption-"));
   const database = createLocalD1(join(directory, "web.sqlite3"));
@@ -155,7 +249,14 @@ test("la adopción avanza por etapas y habilita sesiones asistidas auditables", 
       headers: actorHeaders,
       body: "{}",
     }), env, executionContext);
-    assert.equal(deactivateDuringSession.status, 409);
+    assert.equal(deactivateDuringSession.status, 200);
+    assert.equal((await deactivateDuringSession.json()).settings.stage, "full");
+    const cancelled = await database.prepare("SELECT status FROM manual_mode_schedules WHERE id=?").bind(schedule.id).first();
+    assert.equal(cancelled.status, "cancelled");
+    const stopped = await worker.fetch(new Request("http://localhost/api/manual-mode/edge/current", {
+      method: "POST", headers: edgeHeaders, body: "{}",
+    }), env, executionContext);
+    assert.equal((await stopped.json()).schedule, null);
 
     const audits = await database.prepare(`SELECT event FROM web_access_audit
       WHERE event LIKE 'technology_adoption_%'
@@ -165,6 +266,7 @@ test("la adopción avanza por etapas y habilita sesiones asistidas auditables", 
       "technology_adoption_stage_changed",
       "technology_adoption_stage_changed",
       "technology_adoption_assisted_session_scheduled",
+      "technology_adoption_deactivated",
     ]);
   } finally {
     delete globalThis.__FUEL_EDGE_LOCAL_DB__;

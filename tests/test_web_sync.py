@@ -1,3 +1,4 @@
+import json
 import tempfile
 import unittest
 from pathlib import Path
@@ -86,8 +87,21 @@ class WebSyncWorkerTests(unittest.TestCase):
             lost_at="2026-08-24T23:20:03+00:00",
             restored_at="2026-08-25T01:18:05+00:00",
         )
+        self.assertEqual(self.worker.run_once(), 2)
+        requests = {item.args[0].full_url: item.args[0] for item in call.call_args_list}
+        self.assertIn("http://127.0.0.1:8080/api/system-settings/power-events/edge", requests)
+        alert = json.loads(requests["http://127.0.0.1:8080/api/alerts/edge"].data)
+        self.assertEqual(alert["title"], "Corte eléctrico")
+        self.assertEqual(alert["occurredAt"], "2026-08-24T23:20:03+00:00")
+        self.assertEqual(self.worker.run_once(), 0)
+
+    @patch("fuel_edge.web_sync.urlopen", return_value=_Response())
+    def test_delivers_durable_inventory_evidence(self, call: MagicMock) -> None:
+        self.store.save_inventory_state("site", {}, balance_sample={
+            "id": "sample-1", "occurredAt": "2026-08-25T01:18:05Z",
+            "measuredLiters": 980,
+        })
         self.assertEqual(self.worker.run_once(), 1)
-        self.assertEqual(
-            call.call_args.args[0].full_url,
-            "http://127.0.0.1:8080/api/system-settings/power-events/edge",
-        )
+        self.assertEqual(call.call_args.args[0].full_url,
+                         "http://127.0.0.1:8080/api/inventory-balance/edge")
+        self.assertEqual(self.worker.run_once(), 0)

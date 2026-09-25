@@ -6,7 +6,8 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from fuel_edge.access import AccessContext, TechnologyAdoptionStage
-from fuel_edge.domain import FuelEdgeMachine
+from fuel_edge.domain import EdgeEvent, EdgeState, FuelEdgeMachine
+from fuel_edge.manual_mode import ManualModeCoordinator
 from fuel_edge.service import FuelEdgeService
 from fuel_edge.storage import EventStore
 from fuel_edge.technology_adoption import (
@@ -67,6 +68,79 @@ class TechnologyAdoptionTests(unittest.TestCase):
 
         with self.assertRaisesRegex(ValueError, "revisión de adopción"):
             self.service.update_technology_adoption_policy("assisted", 2)
+
+    def test_deactivation_clears_assisted_context_for_new_activity(self) -> None:
+        self.service.update_technology_adoption_policy("assisted", 2)
+        self.service.start_manual_mode(
+            "adoption-old", ends_at=datetime.now(timezone.utc) + timedelta(hours=1),
+            purpose="adoption_assisted",
+        )
+        self.service.record_k24_pulse(200)
+
+        class ClosedWindowWeb:
+            def current_schedule(self):
+                return None
+
+            def report_state(self, schedule_id, state):
+                self.report = (schedule_id, state)
+
+        web = ClosedWindowWeb()
+        coordinator = ManualModeCoordinator(web, self.service)
+        self.service.update_technology_adoption_policy("full", 3)
+        coordinator.refresh()
+        self.assertEqual(web.report, ("adoption-old", "completed"))
+        self.assertIs(self.machine.state, EdgeState.LOCKED)
+        self.assertFalse(self.machine.relay.is_energized)
+        self.assertIsNone(self.machine.manual_mode_schedule_id)
+        self.assertIsNone(self.machine.active_adoption_stage)
+        self.assertEqual(self.machine.manual_mode_purpose, "manual")
+        old = self.store.pending(("web/fuel-movement",))[0][2]
+        self.assertTrue(old["assistedMode"])
+        self.assertEqual(old["adoptionStage"], "assisted")
+
+        self.service.present_credential("tag-new")
+        denied = self.service.authorize(AccessContext(
+            credential_id="tag-new", operator_id="op-new",
+            credential_active=True, operator_active=True,
+        ))
+        self.assertIs(denied.event, EdgeEvent.AUTHORIZATION_DENIED)
+        self.assertFalse(self.machine.relay.is_energized)
+
+        self.service.start_manual_mode(
+            "manual-new", ends_at=datetime.now(timezone.utc) + timedelta(hours=1),
+        )
+        self.service.record_k24_pulse(300)
+        self.service.stop_manual_mode()
+        new = next(payload for _, _, payload in self.store.pending(("web/fuel-movement",))
+                   if payload.get("manualModeSessionId") == "manual-new")
+        self.assertFalse(new["assistedMode"])
+        self.assertIsNone(new["adoptionStage"])
+
+        self.service.present_credential("tag-full")
+        authorized = self.service.authorize(AccessContext(
+            credential_id="tag-full", operator_id="op-full",
+            credential_active=True, operator_active=True,
+            equipment_id="tractor", equipment_active=True,
+            equipment_present=True, equipment_authenticated=True,
+            association_active=True,
+            assignment_valid_until=datetime.now(timezone.utc) + timedelta(days=1),
+        ))
+        self.assertIs(authorized.event, EdgeEvent.AUTHORIZATION_GRANTED)
+        self.service.record_k24_pulse(400)
+        self.service.apply(EdgeEvent.NFC_REMOVED, reason="nfc_removed")
+        self.service.tick()
+        normal = next(payload for _, _, payload in self.store.pending(("web/fuel-movement",))
+                      if payload.get("operatorId") == "op-full")
+        self.assertEqual(normal["authorizationEvidence"], "full")
+        self.assertEqual(normal["adoptionStage"], "full")
+        self.assertFalse(normal["assistedMode"])
+        self.assertFalse(normal.get("manualMode", False))
+
+        restarted_machine = FuelEdgeMachine()
+        restarted = FuelEdgeService(restarted_machine, self.store, pulses_per_liter=100)
+        restarted.assign("rpi-01", "fundo-01")
+        self.assertIs(restarted_machine.technology_adoption_stage, TechnologyAdoptionStage.FULL)
+        self.assertEqual(restarted_machine.manual_mode_purpose, "manual")
 
     def test_policy_from_another_site_is_rejected(self) -> None:
         coordinator = TechnologyAdoptionCoordinator(

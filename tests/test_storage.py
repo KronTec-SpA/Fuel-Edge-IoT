@@ -2,6 +2,7 @@ import tempfile
 import unittest
 from datetime import datetime, timezone
 from pathlib import Path
+from sqlite3 import IntegrityError
 from threading import Thread
 
 from fuel_edge.domain import EdgeEvent, FuelEdgeMachine
@@ -10,8 +11,14 @@ from fuel_edge.storage import EventStore, format_liters_cl
 
 class EventStoreTests(unittest.TestCase):
     def test_liters_use_chilean_number_format_in_alert_text(self) -> None:
-        self.assertEqual(format_liters_cl(1.93), "1,930")
-        self.assertEqual(format_liters_cl(1930), "1.930,000")
+        self.assertEqual(format_liters_cl(1.93), "1,9")
+        self.assertEqual(format_liters_cl(1930), "1.930,0")
+        for value, expected in [(38.933, "38,9"), (1.64, "1,6"), (6.7, "6,7"),
+                                (17.98, "18,0"), (1.25, "1,3"), (-1.25, "-1,3"),
+                                (1.15, "1,2"), (-0.01, "0,0"), (0, "0,0")]:
+            self.assertEqual(format_liters_cl(value), expected)
+        self.assertEqual(format_liters_cl(773.77, bound="lower"), "773,7")
+        self.assertEqual(format_liters_cl(798.36, bound="upper"), "798,4")
 
     def test_worker_thread_can_persist_mqtt_event(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -95,6 +102,17 @@ class EventStoreTests(unittest.TestCase):
                 ),
                 event_id,
             )
+            before = store.pending(("web/alert",))
+            self.assertEqual(len(before), 1)
+            self.assertEqual(before[0][2]["title"], "Corte eléctrico")
+            self.assertEqual(before[0][2]["priority"], "high")
+            self.assertEqual(before[0][2]["occurredAt"], "2026-08-24T23:20:03+00:00")
+            self.assertIn("recuperación aún no registrada", before[0][2]["detail"])
+            # Simular que la UPS alcanzó a entregar la primera versión y luego
+            # se apagó: al volver debe actualizar esa alarma, con la hora original.
+            store.mark_sent(before[0][0])
+            store.close()
+            store = EventStore(Path(directory) / "edge.db")
 
             payload = store.close_open_power_loss(
                 site_id="fundo-prueba",
@@ -110,6 +128,13 @@ class EventStoreTests(unittest.TestCase):
             queued = store.pending(("web/power-event",))
             self.assertEqual(len(queued), 1)
             self.assertEqual(queued[0][2], payload)
+            after = store.pending(("web/alert",))
+            self.assertEqual(len(after), 1)
+            self.assertEqual(after[0][0], before[0][0])
+            self.assertEqual(after[0][2]["id"], before[0][2]["id"])
+            self.assertEqual(after[0][2]["occurredAt"], before[0][2]["occurredAt"])
+            self.assertIn("1 h 58 min 2 s", after[0][2]["detail"])
+            self.assertIn("Recuperación registrada", after[0][2]["detail"])
             self.assertIsNone(store.close_open_power_loss(
                 site_id="fundo-prueba",
                 restored_at="2026-08-25T01:18:06+00:00",
@@ -130,6 +155,53 @@ class EventStoreTests(unittest.TestCase):
             self.assertEqual(first, second)
             self.assertEqual(len(store.power_supply_events()), 1)
             self.assertEqual(len(store.pending(("web/power-event",))), 1)
+            alerts = store.pending(("web/alert",))
+            self.assertEqual(len(alerts), 1)
+            self.assertIn("confirmado por el operador", alerts[0][2]["detail"])
+            self.assertNotIn("UPS", alerts[0][2]["detail"])
+            store.mark_sent(alerts[0][0])
+            store.record_completed_power_outage(**arguments)
+            self.assertEqual(store.pending(("web/alert",)), [])
+            store.close()
+
+    def test_power_alarm_survives_offline_shutdown_and_normal_restart_does_not_invent_one(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "edge.db"
+            store = EventStore(path)
+            self.assertIsNone(store.close_open_power_loss(site_id="site", restored_at="2026-09-08T12:00:00Z"))
+            self.assertEqual(store.pending(("web/alert",)), [])
+            first = store.record_power_loss(lost_at="2026-09-08T12:01:00Z")
+            store.close()
+            store = EventStore(path)
+            alerts = store.pending(("web/alert",))
+            self.assertEqual(len(alerts), 1)
+            self.assertEqual(alerts[0][2]["id"], f"edge-alert-{first}")
+            store.close_open_power_loss(site_id="site", restored_at="2026-09-08T12:11:00Z")
+            second = store.record_power_loss(lost_at="2026-09-08T12:21:00Z")
+            self.assertNotEqual(first, second)
+            self.assertEqual(len(store.pending(("web/alert",))), 2)
+            store.close()
+
+    def test_power_event_and_alarm_roll_back_together_if_queue_write_fails(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            store = EventStore(Path(directory) / "edge.db")
+            store.connection.execute("""CREATE TRIGGER reject_alert BEFORE INSERT ON outbox
+                WHEN NEW.topic='web/alert' BEGIN SELECT RAISE(ABORT,'queue failed'); END""")
+            store.connection.commit()
+            with self.assertRaisesRegex(IntegrityError, "queue failed"):
+                store.record_power_loss(lost_at="2026-09-08T12:00:00Z")
+            self.assertEqual(store.power_supply_events(), [])
+            store.connection.execute("DROP TRIGGER reject_alert")
+            store.connection.commit()
+            store.record_power_loss(lost_at="2026-09-08T12:00:00Z")
+            store.connection.execute("""CREATE TRIGGER reject_alert BEFORE INSERT ON outbox
+                WHEN NEW.topic='web/alert' BEGIN SELECT RAISE(ABORT,'queue failed'); END""")
+            store.connection.commit()
+            with self.assertRaisesRegex(IntegrityError, "queue failed"):
+                store.close_open_power_loss(site_id="site", restored_at="2026-09-08T12:10:00Z")
+            self.assertEqual(store.power_supply_events()[0]["status"], "open")
+            self.assertEqual(store.pending(("web/power-event",)), [])
+            self.assertIn("recuperación aún no registrada", store.pending(("web/alert",))[0][2]["detail"])
             store.close()
 
     def test_master_dispatch_is_structured_and_auditable_without_equipment(self) -> None:

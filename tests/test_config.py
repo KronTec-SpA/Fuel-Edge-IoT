@@ -23,6 +23,43 @@ path = "/tmp/fuel-edge-test.db"
 
 
 class ConfigTests(unittest.TestCase):
+    def test_calibration_pending_is_explicit_and_boolean(self):
+        self.assertTrue(self._load(VALID_CONFIG + '\n[tank_level]\nocio_calibration_pending=true\n').tank_level.ocio_calibration_pending)
+        with self.assertRaisesRegex(ValueError, 'ocio_calibration_pending'):
+            self._load(VALID_CONFIG + '\n[tank_level]\nocio_calibration_pending="false"\n')
+
+    def test_manufacturer_table_requires_explicit_height_signal(self):
+        base = VALID_CONFIG + '\n[tank_level]\nsource="plc_analog"\nvolume_conversion="fm2500_manufacturer"\n'
+        with self.assertRaisesRegex(ValueError, 'confirmar salida'):
+            self._load(base)
+        with self.assertRaisesRegex(ValueError, 'extremos de altura'):
+            self._load(base + 'ocio_output_mode="linear_height"\n')
+        complete = base + 'ocio_output_mode="linear_height"\nocio_height_at_zero_percent_mm=0\nocio_height_at_full_percent_mm=4000\n'
+        self.assertEqual(self._load(complete).tank_level.ocio_height_signal.height_mm(11.25), 450)
+        with self.assertRaisesRegex(ValueError, 'capacidad'):
+            self._load(complete + 'capacity_liters=5000\n')
+        with self.assertRaisesRegex(ValueError, 'requiere plc_analog'):
+            self._load(complete.replace('source="plc_analog"', 'source="file"'))
+
+    def test_previous_geometric_conversion_is_retired(self):
+        with self.assertRaisesRegex(ValueError, 'retirado'):
+            self._load(VALID_CONFIG + '\n[tank_level]\nvolume_conversion="fm2500_horizontal"\n')
+
+    def test_field_table_requires_matching_capacity_and_full_height(self):
+        base = VALID_CONFIG + '''
+[tank_level]
+source="plc_analog"
+volume_conversion="fm2500_field_20260909"
+capacity_liters=2662
+ocio_output_mode="linear_height"
+ocio_height_at_zero_percent_mm=17.8
+ocio_height_at_full_percent_mm=1470
+'''
+        self.assertEqual(self._load(base).tank_level.capacity_liters, 2662)
+        for invalid in (base.replace('2662', '2500'), base.replace('1470', '1200')):
+            with self.assertRaises(ValueError):
+                self._load(invalid)
+
     def test_loads_selected_r01_and_safe_defaults(self) -> None:
         config = self._load(VALID_CONFIG)
         self.assertEqual(config.plc.pump_relay, "R0.1")
@@ -179,7 +216,10 @@ sample_count = 5
         self.assertEqual(config.tank_level.input_empty_volts, 0)
         self.assertEqual(config.tank_level.input_full_volts, 9.80)
         self.assertEqual(config.tank_level.stability_seconds, 15)
-        self.assertEqual(config.tank_level.stability_band_percent, 2)
+        self.assertEqual(config.tank_level.stability_band_percent, 0.25)
+        self.assertTrue(config.tank_level.cycle_filter.enabled)
+        self.assertEqual(config.tank_level.cycle_filter.window_seconds, 120)
+        self.assertEqual(config.tank_level.cycle_filter.band_percent, 0.25)
 
     def test_rejects_unsafe_analog_configuration(self) -> None:
         with self.assertRaisesRegex(ValueError, "sample_count"):

@@ -4,15 +4,18 @@ import { handleAuthRequest, type AuthEnvironment } from "./auth";
 import { handleUsersRequest } from "./users-api";
 import { handleManagedEntitiesRequest } from "./managed-entities-api";
 import { handleFuelHistoryRequest } from "./fuel-history-api";
+import { handleInventoryBalanceRequest } from "./inventory-balance";
 import { handleAlertsRequest } from "./alerts-api";
 import { handleEquipmentEnrollmentRequest } from "./equipment-enrollment-api";
 import { handleNfcEnrollmentRequest } from "./nfc-enrollment-api";
 import { handleNfcIdentificationRequest } from "./nfc-identification-api";
 import { handleRfidCredentialsRequest } from "./rfid-credentials-api";
 import { handleSystemSettingsRequest } from "./system-settings-api";
+import { handleOcioCalibrationRequest } from "./ocio-calibration";
 import { handleRelayTestRequest } from "./relay-test-api";
 import { handleManualModeRequest } from "./manual-mode-api";
 import { handleDataExportRequest } from "./data-export-api";
+import { handleVoltageHistoryRequest } from "./voltage-history";
 import { handleTechnologyAdoptionRequest } from "./technology-adoption-api";
 import type { D1DatabaseLike } from "./user-store";
 
@@ -59,6 +62,8 @@ const worker = {
     if (nfcIdentificationResponse) return nfcIdentificationResponse;
     const rfidCredentialsResponse = await handleRfidCredentialsRequest(request, runtimeEnv);
     if (rfidCredentialsResponse) return rfidCredentialsResponse;
+    const ocioCalibrationResponse = await handleOcioCalibrationRequest(request, runtimeEnv);
+    if (ocioCalibrationResponse) return ocioCalibrationResponse;
     const systemSettingsResponse = await handleSystemSettingsRequest(request, runtimeEnv);
     if (systemSettingsResponse) return systemSettingsResponse;
     const relayTestResponse = await handleRelayTestRequest(request, runtimeEnv);
@@ -69,8 +74,12 @@ const worker = {
     if (technologyAdoptionResponse) return technologyAdoptionResponse;
     const dataExportResponse = await handleDataExportRequest(request, runtimeEnv);
     if (dataExportResponse) return dataExportResponse;
+    const voltageResponse = await handleVoltageHistoryRequest(request, runtimeEnv);
+    if (voltageResponse) return voltageResponse;
     const fuelHistoryResponse = await handleFuelHistoryRequest(request, runtimeEnv);
     if (fuelHistoryResponse) return fuelHistoryResponse;
+    const inventoryBalanceResponse = await handleInventoryBalanceRequest(request, runtimeEnv);
+    if (inventoryBalanceResponse) return inventoryBalanceResponse;
     const alertsResponse = await handleAlertsRequest(request, runtimeEnv);
     if (alertsResponse) return alertsResponse;
 

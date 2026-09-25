@@ -1,0 +1,110 @@
+{
+  "model": "BFM02500DG",
+  "manufacturer": "Kingspan Environmental / TITAN",
+  "manualRevision": "4/2008",
+  "verifiedOn": "2026-09-08",
+  "sourceImage": "Imagen aportada por el usuario, 14 pares verificados",
+  "sources": [
+    {
+      "url": "https://www.dog.cl/fuelmaster/ES/Fuelmaster/FuelMaster_ES.pdf",
+      "printedPage": 27,
+      "pdfPage": 29
+    },
+    {
+      "url": "https://commercialfuelsolutions.co.uk/downloads/manuals/titan_fuelmaster.pdf",
+      "printedPage": 26,
+      "pdfPage": 27
+    }
+  ],
+  "manufacturerLabelsValuesApproximate": true,
+  "manufacturerTableErrorBoundLiters": null,
+  "installationApplicability": "manufacturer_table_selected_by_user_pending_electrical_and_height_calibration",
+  "userReportedModel": "BFM0250DG",
+  "selectedTableModelAsPrinted": "BFM02500DG",
+  "selectedAsVolumeReferenceByUser": true,
+  "implementedConversion": "fm2500_manufacturer",
+  "installationPlateEvidence": {
+    "receivedOn": "2026-09-08",
+    "source": "Fotografía de la placa aportada por el usuario",
+    "brandVisible": "Kingspan Environmental",
+    "familyVisible": "FuelMaster",
+    "labelListsMultipleModels": true,
+    "userIdentifiesInstalledCapacityLiters": 2500,
+    "matching2500RowExternalDimensionsMm": {
+      "length": 2460,
+      "width": 1460,
+      "height": 1850
+    },
+    "individualModelMarkingClearlyLegible": false,
+    "serialNumber": null,
+    "manufactureYear": null,
+    "note": "La fila de 2500 L coincide con el manual. No se deduce año o serie de las inscripciones desgastadas ni se usa la altura exterior como altura líquida."
+  },
+  "activeInController": true,
+  "controllerRelease": "0.3.21-alarmas-20260908",
+  "ocioCalibrationPending": true,
+  "confirmedInventoryUseEnabled": false,
+  "publishedHeightRangeMm": [
+    135,
+    1125
+  ],
+  "interpolationSpecifiedByManufacturer": false,
+  "points": [
+    {
+      "heightMm": 135,
+      "volumeLiters": 182
+    },
+    {
+      "heightMm": 225,
+      "volumeLiters": 363
+    },
+    {
+      "heightMm": 310,
+      "volumeLiters": 545
+    },
+    {
+      "heightMm": 385,
+      "volumeLiters": 726
+    },
+    {
+      "heightMm": 455,
+      "volumeLiters": 908
+    },
+    {
+      "heightMm": 520,
+      "volumeLiters": 1090
+    },
+    {
+      "heightMm": 605,
+      "volumeLiters": 1271
+    },
+    {
+      "heightMm": 670,
+      "volumeLiters": 1453
+    },
+    {
+      "heightMm": 740,
+      "volumeLiters": 1634
+    },
+    {
+      "heightMm": 810,
+      "volumeLiters": 1816
+    },
+    {
+      "heightMm": 890,
+      "volumeLiters": 1998
+    },
+    {
+      "heightMm": 970,
+      "volumeLiters": 2179
+    },
+    {
+      "heightMm": 1070,
+      "volumeLiters": 2361
+    },
+    {
+      "heightMm": 1125,
+      "volumeLiters": 2497
+    }
+  ]
+}

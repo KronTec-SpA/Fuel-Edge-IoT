@@ -1,0 +1,37 @@
+{
+  "status": "recorded",
+  "auditId": 631,
+  "session": {
+    "id": "controlled-fill-20260909-reference440",
+    "siteId": "concha-y-toro-piloto",
+    "declaredAt": "2026-09-09T15:10:02.468484+00:00",
+    "declaredBy": "user via Codex",
+    "status": "in_progress",
+    "operation": "tank_receipt",
+    "source": "user_confirmed_filling",
+    "actualStartedAt": null,
+    "actualEndedAt": null,
+    "meteredAddedLiters": null,
+    "referenceId": "ocio-field-440mm-20260909T145420Z",
+    "referenceHeightMm": 440,
+    "referenceVolts": 2.8547008547008548,
+    "referenceVolumeLiters": 869,
+    "referenceVolumeSource": "Kingspan interpolation; not independently measured",
+    "signalCalibrationId": "e8d4fb90-3489-4529-bb6f-6723b597c928",
+    "calibrationOverlapsFilling": true,
+    "signalEvidence": {
+      "sampleCount": 1165,
+      "from": "2026-09-09T14:50:00.130487+00:00",
+      "to": "2026-09-09T15:09:41.765783+00:00",
+      "path": "/var/backups/fuel-edge/controlled-fill-20260909-reference440/signal-through-declaration.json",
+      "sha256": "21c5ada8202006e680b249117dfb2404909f3df9e4815d74b12d917a1944f772"
+    },
+    "k24PulsesAtDeclaration": 4229,
+    "verificationPending": [
+      "independently metered liters added",
+      "final OCIO height after settling",
+      "exact start/end times if available"
+    ],
+    "note": "Do not change the voltage-height calibration to follow this rise. Automatic receipt detection may not cover the full load because calibration changed during filling; reconcile against independently metered added liters. No confirmed liters or fuel movement created by this declaration."
+  }
+}

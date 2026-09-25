@@ -16,16 +16,24 @@ from .storage import EventStore
 WEB_TOPICS = (
     "web/fuel-movement",
     "web/level-reading",
+    "web/voltage-readings",
     "web/alert",
     "web/status",
     "web/power-event",
+    "web/inventory-balance",
+    "web/inventory-health",
+    "web/ocio-calibration-applied",
 )
 ENDPOINTS = {
     "web/fuel-movement": "/api/fuel-history/movements",
     "web/level-reading": "/api/fuel-history/readings",
+    "web/voltage-readings": "/api/fuel-history/voltages",
     "web/alert": "/api/alerts/edge",
     "web/status": "/api/fuel-history/status",
     "web/power-event": "/api/system-settings/power-events/edge",
+    "web/inventory-balance": "/api/inventory-balance/edge",
+    "web/inventory-health": "/api/inventory-balance/health",
+    "web/ocio-calibration-applied": "/api/system-settings/ocio-calibration/applied",
 }
 
 
@@ -73,12 +81,16 @@ class WebSyncWorker:
             self.store.prune_outbox()
             self._next_prune_at = monotonic() + 24 * 60 * 60
         delivered = 0
-        for event_id, topic, payload in self.store.pending(WEB_TOPICS, limit=100):
+        # A long voltage backfill must not hold up current status, loads or alarms.
+        operational = tuple(topic for topic in WEB_TOPICS if topic != "web/voltage-readings")
+        events = self.store.pending(operational, limit=100)
+        events += self.store.pending(("web/voltage-readings",), limit=10)
+        for event_id, topic, payload in events:
             try:
                 self._deliver(topic, payload)
             except HTTPError as error:
                 status = int(error.code)
-                if status in {400, 404, 405, 413, 422}:
+                if status in {400, 404, 405, 413, 422} or (topic == "web/ocio-calibration-applied" and status == 409):
                     self.store.mark_failed(event_id, f"http_{status}")
                 else:
                     self.store.mark_retry(event_id, f"http_{status}", self.config.retry_seconds)

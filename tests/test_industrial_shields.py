@@ -134,6 +134,111 @@ class FakeAnalogBackend:
 
 
 class IndustrialShieldsTankLevelReaderTests(unittest.TestCase):
+    def test_pending_calibration_records_signal_without_publishing_volume(self):
+        from fuel_edge.tank_table import OcioHeightSignal
+        from fuel_edge.ocio_filter import OcioFilterConfig
+        clock = [0.0]
+        raw = 450 / 1300 * 9.8 / 10 * 4095
+        reader = IndustrialShieldsTankLevelReader(
+            pin='I0.2', version='RPIPLC_V6', model='RPIPLC_19R',
+            capacity_liters=2500, signal_mode='0-10v', input_empty_volts=0,
+            input_full_volts=9.8, sample_count=1, volume_conversion='fm2500_manufacturer',
+            ocio_height_signal=OcioHeightSignal('linear_height', 0, 1300),
+            ocio_calibration_pending=True, cycle_filter=OcioFilterConfig(),
+            backend=FakeAnalogBackend([raw]*310), clock=lambda: clock[0],
+        )
+        for second in range(310):
+            clock[0] = float(second)
+            self.assertIsNone(reader.read_if_updated())
+        self.assertEqual(reader.quality_update()['quality'], 'calibration_pending')
+        self.assertIsNone(reader._last_published_at)
+        diagnostic = reader.drain_diagnostics(force=True)[-1]
+        self.assertAlmostEqual(diagnostic['volts'], 3.392308, places=6)
+        self.assertAlmostEqual(diagnostic['candidateVolumeLiters'], 895)
+
+    def test_converts_confirmed_height_signal_using_manufacturer_table(self) -> None:
+        from fuel_edge.tank_table import OcioHeightSignal
+        raw = 450 / 4000 * 9.8 / 10 * 4095
+        reader = IndustrialShieldsTankLevelReader(
+            pin="I0.2", version="RPIPLC_V6", model="RPIPLC_19R",
+            capacity_liters=2500, signal_mode="0-10v",
+            input_empty_volts=0, input_full_volts=9.8, sample_count=1,
+            volume_conversion="fm2500_manufacturer",
+            ocio_height_signal=OcioHeightSignal('linear_height', 0, 4000),
+            backend=FakeAnalogBackend([raw]),
+        )
+        self.assertAlmostEqual(reader.read_if_updated().level_liters,
+                               895, places=3)
+
+    def manufacturer_reader(self, heights):
+        from fuel_edge.tank_table import OcioHeightSignal
+        return IndustrialShieldsTankLevelReader(
+            pin='I0.2', version='RPIPLC_V6', model='RPIPLC_19R',
+            capacity_liters=2500, signal_mode='0-10v', input_empty_volts=0,
+            input_full_volts=10, sample_count=1, volume_conversion='fm2500_manufacturer',
+            ocio_height_signal=OcioHeightSignal('linear_height', 0, 4000),
+            backend=FakeAnalogBackend([h / 4000 * 4095 for h in heights]),
+        )
+
+    def test_manufacturer_range_converts_both_bounds_and_keeps_evidence(self):
+        from fuel_edge.ocio_filter import OcioRange
+        reader = self.manufacturer_reader([])
+        reading = reader._publish_range(OcioRange(440 / 40, 450 / 40), 0)
+        self.assertEqual((reading.min_liters, reading.max_liters), (869, 895))
+        self.assertEqual(reading.level_liters, 882)
+
+    def test_outside_manufacturer_table_is_unavailable_then_valid_recovers(self):
+        reader = self.manufacturer_reader([125, 450])
+        with self.assertRaisesRegex(AnalogInputError, 'fuera de la tabla'):
+            reader.read_if_updated()
+        self.assertEqual(reader.quality_update()['quality'], 'unavailable')
+        self.assertIsNone(reader._last_published_at)
+        self.assertEqual(reader.read_if_updated().level_liters, 895)
+        self.assertEqual(reader.quality_update()['quality'], 'valid')
+
+    def test_range_outside_table_cannot_clamp_or_advance_publication(self):
+        from fuel_edge.ocio_filter import OcioRange
+        reader = self.manufacturer_reader([])
+        with self.assertRaisesRegex(AnalogInputError, 'fuera de la tabla'):
+            reader._publish_range(OcioRange(440 / 40, 1130 / 40), 0)
+        self.assertIsNone(reader._last_range)
+        self.assertIsNone(reader._last_published_at)
+
+    def test_electrical_overrange_cannot_be_clamped_to_last_table_point(self):
+        from fuel_edge.tank_table import OcioHeightSignal
+        reader = IndustrialShieldsTankLevelReader(
+            pin='I0.2', version='RPIPLC_V6', model='RPIPLC_19R',
+            capacity_liters=2500, signal_mode='0-10v', input_empty_volts=0,
+            input_full_volts=9.8, sample_count=1, volume_conversion='fm2500_manufacturer',
+            ocio_height_signal=OcioHeightSignal('linear_height', 135, 1125),
+            backend=FakeAnalogBackend([4095]),
+        )
+        with self.assertRaisesRegex(AnalogInputError, 'rango eléctrico'):
+            reader.read_if_updated()
+        self.assertIsNone(reader._last_published_at)
+
+    def test_height_mapping_keeps_10mm_steps_separate_and_rejects_15s_pressure_pulses(self):
+        from fuel_edge.tank_table import OcioHeightSignal
+        from fuel_edge.ocio_filter import OcioFilterConfig
+        heights = [480 if 30 <= t % 90 < 45 else (440 if t % 20 < 10 else 450) for t in range(250)]
+        clock = iter(range(len(heights)))
+        reader = IndustrialShieldsTankLevelReader(
+            pin='I0.2', version='RPIPLC_V6', model='RPIPLC_19R',
+            capacity_liters=2500, signal_mode='0-10v', input_empty_volts=0,
+            input_full_volts=10, sample_count=1, volume_conversion='fm2500_manufacturer',
+            ocio_height_signal=OcioHeightSignal('linear_height', 0, 4000),
+            cycle_filter=OcioFilterConfig(), clock=lambda: next(clock),
+            backend=FakeAnalogBackend([h / 4000 * 4095 for h in heights]),
+        )
+        self.assertAlmostEqual(reader._cycle_filter.config.band_percent * 40 * 2.8, 6.25)
+        self.assertAlmostEqual(reader.deadband_percent * 40 * 2.8, 2.5)
+        readings = [(t, reader.read_if_updated()) for t in range(len(heights))]
+        accepted = [(t,r) for t,r in readings if r is not None]
+        self.assertTrue(accepted)
+        for t, reading in accepted:
+            self.assertEqual((reading.min_liters, reading.max_liters), (869, 895))
+            self.assertFalse(30 <= t % 90 < 60)
+
     def test_requires_a_stable_window_before_publishing_level_changes(self) -> None:
         levels = [50] * 4 + [60] * 3 + [50] * 4 + [40] * 4
         # El período deliberadamente no divide la ventana: reproduce la deriva

@@ -1,0 +1,794 @@
+[
+  {
+    "calibrationId": "{\"curveId\": \"field-copec-20260909-linear-v1-b0a652dc4528beeb\"}",
+    "initial": {
+      "minLiters": 2662,
+      "maxLiters": 2662
+    },
+    "observed": {
+      "minLiters": 182.0,
+      "maxLiters": 202.11111111111111
+    },
+    "metered": 0,
+    "expected": {
+      "policyId": "ocio-observed-plus-error-v1-density-8375",
+      "densityKgL": 0.8375,
+      "densityVerified": true,
+      "densitySource": "field_measurement_20260909",
+      "ocioErrorMm": 47.76119402985074,
+      "quantizationHalfStepMm": 5.0,
+      "k24ErrorLiters": 0.0,
+      "expectedBounds": {
+        "minLiters": 2594.113,
+        "maxLiters": 2662.0
+      },
+      "measuredBounds": {
+        "minLiters": 0.0,
+        "maxLiters": 308.22
+      },
+      "differenceBounds": {
+        "minLiters": 2285.893,
+        "maxLiters": 2662.0
+      }
+    }
+  },
+  {
+    "calibrationId": "{\"curveId\": \"field-copec-20260909-linear-v1-b0a652dc4528beeb\"}",
+    "initial": {
+      "minLiters": 2662,
+      "maxLiters": 2662
+    },
+    "observed": {
+      "minLiters": 182.0,
+      "maxLiters": 202.11111111111111
+    },
+    "metered": 20,
+    "expected": {
+      "policyId": "ocio-observed-plus-error-v1-density-8375",
+      "densityKgL": 0.8375,
+      "densityVerified": true,
+      "densitySource": "field_measurement_20260909",
+      "ocioErrorMm": 47.76119402985074,
+      "quantizationHalfStepMm": 5.0,
+      "k24ErrorLiters": 0.2,
+      "expectedBounds": {
+        "minLiters": 2573.913,
+        "maxLiters": 2642.2
+      },
+      "measuredBounds": {
+        "minLiters": 0.0,
+        "maxLiters": 308.22
+      },
+      "differenceBounds": {
+        "minLiters": 2265.693,
+        "maxLiters": 2642.2
+      }
+    }
+  },
+  {
+    "calibrationId": "{\"curveId\": \"field-copec-20260909-linear-v1-b0a652dc4528beeb\"}",
+    "initial": {
+      "minLiters": 2662,
+      "maxLiters": 2662
+    },
+    "observed": {
+      "minLiters": 182.0,
+      "maxLiters": 202.11111111111111
+    },
+    "metered": 100,
+    "expected": {
+      "policyId": "ocio-observed-plus-error-v1-density-8375",
+      "densityKgL": 0.8375,
+      "densityVerified": true,
+      "densitySource": "field_measurement_20260909",
+      "ocioErrorMm": 47.76119402985074,
+      "quantizationHalfStepMm": 5.0,
+      "k24ErrorLiters": 1.0,
+      "expectedBounds": {
+        "minLiters": 2493.113,
+        "maxLiters": 2563.0
+      },
+      "measuredBounds": {
+        "minLiters": 0.0,
+        "maxLiters": 308.22
+      },
+      "differenceBounds": {
+        "minLiters": 2184.893,
+        "maxLiters": 2563.0
+      }
+    }
+  },
+  {
+    "calibrationId": "{\"curveId\": \"field-copec-20260909-linear-v1-b0a652dc4528beeb\"}",
+    "initial": {
+      "minLiters": 2662,
+      "maxLiters": 2662
+    },
+    "observed": {
+      "minLiters": 363.0,
+      "maxLiters": 384.4117647058824
+    },
+    "metered": 0,
+    "expected": {
+      "policyId": "ocio-observed-plus-error-v1-density-8375",
+      "densityKgL": 0.8375,
+      "densityVerified": true,
+      "densitySource": "field_measurement_20260909",
+      "ocioErrorMm": 47.76119402985074,
+      "quantizationHalfStepMm": 5.0,
+      "k24ErrorLiters": 0.0,
+      "expectedBounds": {
+        "minLiters": 2594.113,
+        "maxLiters": 2662.0
+      },
+      "measuredBounds": {
+        "minLiters": 256.891,
+        "maxLiters": 497.383
+      },
+      "differenceBounds": {
+        "minLiters": 2096.73,
+        "maxLiters": 2405.109
+      }
+    }
+  },
+  {
+    "calibrationId": "{\"curveId\": \"field-copec-20260909-linear-v1-b0a652dc4528beeb\"}",
+    "initial": {
+      "minLiters": 2662,
+      "maxLiters": 2662
+    },
+    "observed": {
+      "minLiters": 363.0,
+      "maxLiters": 384.4117647058824
+    },
+    "metered": 20,
+    "expected": {
+      "policyId": "ocio-observed-plus-error-v1-density-8375",
+      "densityKgL": 0.8375,
+      "densityVerified": true,
+      "densitySource": "field_measurement_20260909",
+      "ocioErrorMm": 47.76119402985074,
+      "quantizationHalfStepMm": 5.0,
+      "k24ErrorLiters": 0.2,
+      "expectedBounds": {
+        "minLiters": 2573.913,
+        "maxLiters": 2642.2
+      },
+      "measuredBounds": {
+        "minLiters": 256.891,
+        "maxLiters": 497.383
+      },
+      "differenceBounds": {
+        "minLiters": 2076.53,
+        "maxLiters": 2385.309
+      }
+    }
+  },
+  {
+    "calibrationId": "{\"curveId\": \"field-copec-20260909-linear-v1-b0a652dc4528beeb\"}",
+    "initial": {
+      "minLiters": 2662,
+      "maxLiters": 2662
+    },
+    "observed": {
+      "minLiters": 363.0,
+      "maxLiters": 384.4117647058824
+    },
+    "metered": 100,
+    "expected": {
+      "policyId": "ocio-observed-plus-error-v1-density-8375",
+      "densityKgL": 0.8375,
+      "densityVerified": true,
+      "densitySource": "field_measurement_20260909",
+      "ocioErrorMm": 47.76119402985074,
+      "quantizationHalfStepMm": 5.0,
+      "k24ErrorLiters": 1.0,
+      "expectedBounds": {
+        "minLiters": 2493.113,
+        "maxLiters": 2563.0
+      },
+      "measuredBounds": {
+        "minLiters": 256.891,
+        "maxLiters": 497.383
+      },
+      "differenceBounds": {
+        "minLiters": 1995.729,
+        "maxLiters": 2306.109
+      }
+    }
+  },
+  {
+    "calibrationId": "{\"curveId\": \"field-copec-20260909-linear-v1-b0a652dc4528beeb\"}",
+    "initial": {
+      "minLiters": 2662,
+      "maxLiters": 2662
+    },
+    "observed": {
+      "minLiters": 869.0,
+      "maxLiters": 897.5714285714286
+    },
+    "metered": 0,
+    "expected": {
+      "policyId": "ocio-observed-plus-error-v1-density-8375",
+      "densityKgL": 0.8375,
+      "densityVerified": true,
+      "densitySource": "field_measurement_20260909",
+      "ocioErrorMm": 47.76119402985074,
+      "quantizationHalfStepMm": 5.0,
+      "k24ErrorLiters": 0.0,
+      "expectedBounds": {
+        "minLiters": 2594.113,
+        "maxLiters": 2662.0
+      },
+      "measuredBounds": {
+        "minLiters": 731.82,
+        "maxLiters": 1048.318
+      },
+      "differenceBounds": {
+        "minLiters": 1545.794,
+        "maxLiters": 1930.18
+      }
+    }
+  },
+  {
+    "calibrationId": "{\"curveId\": \"field-copec-20260909-linear-v1-b0a652dc4528beeb\"}",
+    "initial": {
+      "minLiters": 2662,
+      "maxLiters": 2662
+    },
+    "observed": {
+      "minLiters": 869.0,
+      "maxLiters": 897.5714285714286
+    },
+    "metered": 20,
+    "expected": {
+      "policyId": "ocio-observed-plus-error-v1-density-8375",
+      "densityKgL": 0.8375,
+      "densityVerified": true,
+      "densitySource": "field_measurement_20260909",
+      "ocioErrorMm": 47.76119402985074,
+      "quantizationHalfStepMm": 5.0,
+      "k24ErrorLiters": 0.2,
+      "expectedBounds": {
+        "minLiters": 2573.913,
+        "maxLiters": 2642.2
+      },
+      "measuredBounds": {
+        "minLiters": 731.82,
+        "maxLiters": 1048.318
+      },
+      "differenceBounds": {
+        "minLiters": 1525.595,
+        "maxLiters": 1910.38
+      }
+    }
+  },
+  {
+    "calibrationId": "{\"curveId\": \"field-copec-20260909-linear-v1-b0a652dc4528beeb\"}",
+    "initial": {
+      "minLiters": 2662,
+      "maxLiters": 2662
+    },
+    "observed": {
+      "minLiters": 869.0,
+      "maxLiters": 897.5714285714286
+    },
+    "metered": 100,
+    "expected": {
+      "policyId": "ocio-observed-plus-error-v1-density-8375",
+      "densityKgL": 0.8375,
+      "densityVerified": true,
+      "densitySource": "field_measurement_20260909",
+      "ocioErrorMm": 47.76119402985074,
+      "quantizationHalfStepMm": 5.0,
+      "k24ErrorLiters": 1.0,
+      "expectedBounds": {
+        "minLiters": 2493.113,
+        "maxLiters": 2563.0
+      },
+      "measuredBounds": {
+        "minLiters": 731.82,
+        "maxLiters": 1048.318
+      },
+      "differenceBounds": {
+        "minLiters": 1444.794,
+        "maxLiters": 1831.18
+      }
+    }
+  },
+  {
+    "calibrationId": "{\"curveId\": \"field-copec-20260909-linear-v1-b0a652dc4528beeb\"}",
+    "initial": {
+      "minLiters": 2662,
+      "maxLiters": 2662
+    },
+    "observed": {
+      "minLiters": 1069.0,
+      "maxLiters": 1097.5714285714287
+    },
+    "metered": 0,
+    "expected": {
+      "policyId": "ocio-observed-plus-error-v1-density-8375",
+      "densityKgL": 0.8375,
+      "densityVerified": true,
+      "densitySource": "field_measurement_20260909",
+      "ocioErrorMm": 47.76119402985074,
+      "quantizationHalfStepMm": 5.0,
+      "k24ErrorLiters": 0.0,
+      "expectedBounds": {
+        "minLiters": 2594.113,
+        "maxLiters": 2662.0
+      },
+      "measuredBounds": {
+        "minLiters": 918.253,
+        "maxLiters": 1248.318
+      },
+      "differenceBounds": {
+        "minLiters": 1345.794,
+        "maxLiters": 1743.747
+      }
+    }
+  },
+  {
+    "calibrationId": "{\"curveId\": \"field-copec-20260909-linear-v1-b0a652dc4528beeb\"}",
+    "initial": {
+      "minLiters": 2662,
+      "maxLiters": 2662
+    },
+    "observed": {
+      "minLiters": 1069.0,
+      "maxLiters": 1097.5714285714287
+    },
+    "metered": 20,
+    "expected": {
+      "policyId": "ocio-observed-plus-error-v1-density-8375",
+      "densityKgL": 0.8375,
+      "densityVerified": true,
+      "densitySource": "field_measurement_20260909",
+      "ocioErrorMm": 47.76119402985074,
+      "quantizationHalfStepMm": 5.0,
+      "k24ErrorLiters": 0.2,
+      "expectedBounds": {
+        "minLiters": 2573.913,
+        "maxLiters": 2642.2
+      },
+      "measuredBounds": {
+        "minLiters": 918.253,
+        "maxLiters": 1248.318
+      },
+      "differenceBounds": {
+        "minLiters": 1325.595,
+        "maxLiters": 1723.947
+      }
+    }
+  },
+  {
+    "calibrationId": "{\"curveId\": \"field-copec-20260909-linear-v1-b0a652dc4528beeb\"}",
+    "initial": {
+      "minLiters": 2662,
+      "maxLiters": 2662
+    },
+    "observed": {
+      "minLiters": 1069.0,
+      "maxLiters": 1097.5714285714287
+    },
+    "metered": 100,
+    "expected": {
+      "policyId": "ocio-observed-plus-error-v1-density-8375",
+      "densityKgL": 0.8375,
+      "densityVerified": true,
+      "densitySource": "field_measurement_20260909",
+      "ocioErrorMm": 47.76119402985074,
+      "quantizationHalfStepMm": 5.0,
+      "k24ErrorLiters": 1.0,
+      "expectedBounds": {
+        "minLiters": 2493.113,
+        "maxLiters": 2563.0
+      },
+      "measuredBounds": {
+        "minLiters": 918.253,
+        "maxLiters": 1248.318
+      },
+      "differenceBounds": {
+        "minLiters": 1244.794,
+        "maxLiters": 1644.747
+      }
+    }
+  },
+  {
+    "calibrationId": "{\"curveId\": \"field-copec-20260909-linear-v1-b0a652dc4528beeb\"}",
+    "initial": {
+      "minLiters": 2662,
+      "maxLiters": 2662
+    },
+    "observed": {
+      "minLiters": 1669.0,
+      "maxLiters": 1694.0
+    },
+    "metered": 0,
+    "expected": {
+      "policyId": "ocio-observed-plus-error-v1-density-8375",
+      "densityKgL": 0.8375,
+      "densityVerified": true,
+      "densitySource": "field_measurement_20260909",
+      "ocioErrorMm": 47.76119402985074,
+      "quantizationHalfStepMm": 5.0,
+      "k24ErrorLiters": 0.0,
+      "expectedBounds": {
+        "minLiters": 2594.113,
+        "maxLiters": 2662.0
+      },
+      "measuredBounds": {
+        "minLiters": 1518.253,
+        "maxLiters": 1825.903
+      },
+      "differenceBounds": {
+        "minLiters": 768.209,
+        "maxLiters": 1143.747
+      }
+    }
+  },
+  {
+    "calibrationId": "{\"curveId\": \"field-copec-20260909-linear-v1-b0a652dc4528beeb\"}",
+    "initial": {
+      "minLiters": 2662,
+      "maxLiters": 2662
+    },
+    "observed": {
+      "minLiters": 1669.0,
+      "maxLiters": 1694.0
+    },
+    "metered": 20,
+    "expected": {
+      "policyId": "ocio-observed-plus-error-v1-density-8375",
+      "densityKgL": 0.8375,
+      "densityVerified": true,
+      "densitySource": "field_measurement_20260909",
+      "ocioErrorMm": 47.76119402985074,
+      "quantizationHalfStepMm": 5.0,
+      "k24ErrorLiters": 0.2,
+      "expectedBounds": {
+        "minLiters": 2573.913,
+        "maxLiters": 2642.2
+      },
+      "measuredBounds": {
+        "minLiters": 1518.253,
+        "maxLiters": 1825.903
+      },
+      "differenceBounds": {
+        "minLiters": 748.01,
+        "maxLiters": 1123.947
+      }
+    }
+  },
+  {
+    "calibrationId": "{\"curveId\": \"field-copec-20260909-linear-v1-b0a652dc4528beeb\"}",
+    "initial": {
+      "minLiters": 2662,
+      "maxLiters": 2662
+    },
+    "observed": {
+      "minLiters": 1669.0,
+      "maxLiters": 1694.0
+    },
+    "metered": 100,
+    "expected": {
+      "policyId": "ocio-observed-plus-error-v1-density-8375",
+      "densityKgL": 0.8375,
+      "densityVerified": true,
+      "densitySource": "field_measurement_20260909",
+      "ocioErrorMm": 47.76119402985074,
+      "quantizationHalfStepMm": 5.0,
+      "k24ErrorLiters": 1.0,
+      "expectedBounds": {
+        "minLiters": 2493.113,
+        "maxLiters": 2563.0
+      },
+      "measuredBounds": {
+        "minLiters": 1518.253,
+        "maxLiters": 1825.903
+      },
+      "differenceBounds": {
+        "minLiters": 667.209,
+        "maxLiters": 1044.748
+      }
+    }
+  },
+  {
+    "calibrationId": "{\"curveId\": \"field-copec-20260909-linear-v1-b0a652dc4528beeb\"}",
+    "initial": {
+      "minLiters": 2662,
+      "maxLiters": 2662
+    },
+    "observed": {
+      "minLiters": 2469.0,
+      "maxLiters": 2481.866666666667
+    },
+    "metered": 0,
+    "expected": {
+      "policyId": "ocio-observed-plus-error-v1-density-8375",
+      "densityKgL": 0.8375,
+      "densityVerified": true,
+      "densitySource": "field_measurement_20260909",
+      "ocioErrorMm": 47.76119402985074,
+      "quantizationHalfStepMm": 5.0,
+      "k24ErrorLiters": 0.0,
+      "expectedBounds": {
+        "minLiters": 2594.113,
+        "maxLiters": 2662.0
+      },
+      "measuredBounds": {
+        "minLiters": 2363.477,
+        "maxLiters": 2549.753
+      },
+      "differenceBounds": {
+        "minLiters": 44.359,
+        "maxLiters": 298.524
+      }
+    }
+  },
+  {
+    "calibrationId": "{\"curveId\": \"field-copec-20260909-linear-v1-b0a652dc4528beeb\"}",
+    "initial": {
+      "minLiters": 2662,
+      "maxLiters": 2662
+    },
+    "observed": {
+      "minLiters": 2469.0,
+      "maxLiters": 2481.866666666667
+    },
+    "metered": 20,
+    "expected": {
+      "policyId": "ocio-observed-plus-error-v1-density-8375",
+      "densityKgL": 0.8375,
+      "densityVerified": true,
+      "densitySource": "field_measurement_20260909",
+      "ocioErrorMm": 47.76119402985074,
+      "quantizationHalfStepMm": 5.0,
+      "k24ErrorLiters": 0.2,
+      "expectedBounds": {
+        "minLiters": 2573.913,
+        "maxLiters": 2642.2
+      },
+      "measuredBounds": {
+        "minLiters": 2363.477,
+        "maxLiters": 2549.753
+      },
+      "differenceBounds": {
+        "minLiters": 24.159,
+        "maxLiters": 278.723
+      }
+    }
+  },
+  {
+    "calibrationId": "{\"curveId\": \"field-copec-20260909-linear-v1-b0a652dc4528beeb\"}",
+    "initial": {
+      "minLiters": 2662,
+      "maxLiters": 2662
+    },
+    "observed": {
+      "minLiters": 2469.0,
+      "maxLiters": 2481.866666666667
+    },
+    "metered": 100,
+    "expected": {
+      "policyId": "ocio-observed-plus-error-v1-density-8375",
+      "densityKgL": 0.8375,
+      "densityVerified": true,
+      "densitySource": "field_measurement_20260909",
+      "ocioErrorMm": 47.76119402985074,
+      "quantizationHalfStepMm": 5.0,
+      "k24ErrorLiters": 1.0,
+      "expectedBounds": {
+        "minLiters": 2493.113,
+        "maxLiters": 2563.0
+      },
+      "measuredBounds": {
+        "minLiters": 2363.477,
+        "maxLiters": 2549.753
+      },
+      "differenceBounds": {
+        "minLiters": -56.641,
+        "maxLiters": 199.524
+      }
+    }
+  },
+  {
+    "calibrationId": "{\"curveId\": \"field-copec-20260909-linear-v1-b0a652dc4528beeb\"}",
+    "initial": {
+      "minLiters": 2662,
+      "maxLiters": 2662
+    },
+    "observed": {
+      "minLiters": 2649.133333333333,
+      "maxLiters": 2662.0
+    },
+    "metered": 0,
+    "expected": {
+      "policyId": "ocio-observed-plus-error-v1-density-8375",
+      "densityKgL": 0.8375,
+      "densityVerified": true,
+      "densitySource": "field_measurement_20260909",
+      "ocioErrorMm": 47.76119402985074,
+      "quantizationHalfStepMm": 5.0,
+      "k24ErrorLiters": 0.0,
+      "expectedBounds": {
+        "minLiters": 2594.113,
+        "maxLiters": 2662.0
+      },
+      "measuredBounds": {
+        "minLiters": 2581.247,
+        "maxLiters": 2662.0
+      },
+      "differenceBounds": {
+        "minLiters": -67.888,
+        "maxLiters": 80.754
+      }
+    }
+  },
+  {
+    "calibrationId": "{\"curveId\": \"field-copec-20260909-linear-v1-b0a652dc4528beeb\"}",
+    "initial": {
+      "minLiters": 2662,
+      "maxLiters": 2662
+    },
+    "observed": {
+      "minLiters": 2649.133333333333,
+      "maxLiters": 2662.0
+    },
+    "metered": 20,
+    "expected": {
+      "policyId": "ocio-observed-plus-error-v1-density-8375",
+      "densityKgL": 0.8375,
+      "densityVerified": true,
+      "densitySource": "field_measurement_20260909",
+      "ocioErrorMm": 47.76119402985074,
+      "quantizationHalfStepMm": 5.0,
+      "k24ErrorLiters": 0.2,
+      "expectedBounds": {
+        "minLiters": 2573.913,
+        "maxLiters": 2642.2
+      },
+      "measuredBounds": {
+        "minLiters": 2581.247,
+        "maxLiters": 2662.0
+      },
+      "differenceBounds": {
+        "minLiters": -88.087,
+        "maxLiters": 60.953
+      }
+    }
+  },
+  {
+    "calibrationId": "{\"curveId\": \"field-copec-20260909-linear-v1-b0a652dc4528beeb\"}",
+    "initial": {
+      "minLiters": 2662,
+      "maxLiters": 2662
+    },
+    "observed": {
+      "minLiters": 2649.133333333333,
+      "maxLiters": 2662.0
+    },
+    "metered": 100,
+    "expected": {
+      "policyId": "ocio-observed-plus-error-v1-density-8375",
+      "densityKgL": 0.8375,
+      "densityVerified": true,
+      "densitySource": "field_measurement_20260909",
+      "ocioErrorMm": 47.76119402985074,
+      "quantizationHalfStepMm": 5.0,
+      "k24ErrorLiters": 1.0,
+      "expectedBounds": {
+        "minLiters": 2493.113,
+        "maxLiters": 2563.0
+      },
+      "measuredBounds": {
+        "minLiters": 2581.247,
+        "maxLiters": 2662.0
+      },
+      "differenceBounds": {
+        "minLiters": -168.888,
+        "maxLiters": -18.246
+      }
+    }
+  },
+  {
+    "calibrationId": "{\"curveId\": \"field-copec-20260909-linear-v1-b0a652dc4528beeb\"}",
+    "initial": {
+      "minLiters": 2662,
+      "maxLiters": 2662
+    },
+    "observed": {
+      "minLiters": 2662.0,
+      "maxLiters": 2662.0
+    },
+    "metered": 0,
+    "expected": {
+      "policyId": "ocio-observed-plus-error-v1-density-8375",
+      "densityKgL": 0.8375,
+      "densityVerified": true,
+      "densitySource": "field_measurement_20260909",
+      "ocioErrorMm": 47.76119402985074,
+      "quantizationHalfStepMm": 5.0,
+      "k24ErrorLiters": 0.0,
+      "expectedBounds": {
+        "minLiters": 2594.113,
+        "maxLiters": 2662.0
+      },
+      "measuredBounds": {
+        "minLiters": 2594.113,
+        "maxLiters": 2662.0
+      },
+      "differenceBounds": {
+        "minLiters": -67.888,
+        "maxLiters": 67.888
+      }
+    }
+  },
+  {
+    "calibrationId": "{\"curveId\": \"field-copec-20260909-linear-v1-b0a652dc4528beeb\"}",
+    "initial": {
+      "minLiters": 2662,
+      "maxLiters": 2662
+    },
+    "observed": {
+      "minLiters": 2662.0,
+      "maxLiters": 2662.0
+    },
+    "metered": 20,
+    "expected": {
+      "policyId": "ocio-observed-plus-error-v1-density-8375",
+      "densityKgL": 0.8375,
+      "densityVerified": true,
+      "densitySource": "field_measurement_20260909",
+      "ocioErrorMm": 47.76119402985074,
+      "quantizationHalfStepMm": 5.0,
+      "k24ErrorLiters": 0.2,
+      "expectedBounds": {
+        "minLiters": 2573.913,
+        "maxLiters": 2642.2
+      },
+      "measuredBounds": {
+        "minLiters": 2594.113,
+        "maxLiters": 2662.0
+      },
+      "differenceBounds": {
+        "minLiters": -88.087,
+        "maxLiters": 48.087
+      }
+    }
+  },
+  {
+    "calibrationId": "{\"curveId\": \"field-copec-20260909-linear-v1-b0a652dc4528beeb\"}",
+    "initial": {
+      "minLiters": 2662,
+      "maxLiters": 2662
+    },
+    "observed": {
+      "minLiters": 2662.0,
+      "maxLiters": 2662.0
+    },
+    "metered": 100,
+    "expected": {
+      "policyId": "ocio-observed-plus-error-v1-density-8375",
+      "densityKgL": 0.8375,
+      "densityVerified": true,
+      "densitySource": "field_measurement_20260909",
+      "ocioErrorMm": 47.76119402985074,
+      "quantizationHalfStepMm": 5.0,
+      "k24ErrorLiters": 1.0,
+      "expectedBounds": {
+        "minLiters": 2493.113,
+        "maxLiters": 2563.0
+      },
+      "measuredBounds": {
+        "minLiters": 2594.113,
+        "maxLiters": 2662.0
+      },
+      "differenceBounds": {
+        "minLiters": -168.888,
+        "maxLiters": -31.112
+      }
+    }
+  }
+]
